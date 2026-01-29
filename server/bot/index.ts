@@ -36,12 +36,23 @@ export async function startBot(): Promise<Bot | null> {
       }
     });
 
+    logger.info("Starting bot polling...");
+    
     bot.start({
       onStart: () => {
         isRunning = true;
         logger.info("Telegram bot polling started successfully");
       },
+    }).catch((err) => {
+      if (err instanceof GrammyError && err.error_code === 409) {
+        logger.warn("Bot conflict: another instance is running (published version). Dashboard will continue working.");
+        isRunning = false;
+      } else {
+        logger.error("Bot polling error", err);
+      }
     });
+    
+    logger.info("Telegram bot started");
   } catch (err: any) {
     logger.error("Failed to start bot", err.message);
     return null;
