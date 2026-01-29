@@ -81,31 +81,82 @@ export async function setupWebhook(webhookUrl: string): Promise<string | null> {
     const existingWebhooks = await axios.get(
       `${HELIUS_API_BASE}/webhooks?api-key=${config.heliusApiKey}`
     );
+    const webhooks = existingWebhooks.data || [];
 
-    for (const webhook of existingWebhooks.data) {
-      if (webhook.webhookURL === webhookUrl) {
-        if (config.webhookSecret) {
-          await axios.put(
-            `${HELIUS_API_BASE}/webhooks/${webhook.webhookID}?api-key=${config.heliusApiKey}`,
-            {
-              webhookURL: webhookUrl,
-              transactionTypes: ["Any"],
-              accountAddresses: [config.pumpfunProgram],
-              webhookType: "enhanced",
-              authHeader: `Bearer ${config.webhookSecret}`,
-            }
+    const exactMatches = webhooks.filter((webhook: any) => webhook.webhookURL === webhookUrl);
+    const pumpfunMatches = webhooks.filter(
+      (webhook: any) =>
+        webhook.webhookType === "enhanced" &&
+        Array.isArray(webhook.accountAddresses) &&
+        webhook.accountAddresses.includes(config.pumpfunProgram)
+    );
+
+    const dedupeWebhooks = async (webhookList: any[], keepWebhookId?: string) => {
+      const duplicates = webhookList.filter(
+        (webhook) => webhook.webhookID && webhook.webhookID !== keepWebhookId
+      );
+
+      for (const duplicate of duplicates) {
+        try {
+          await axios.delete(
+            `${HELIUS_API_BASE}/webhooks/${duplicate.webhookID}?api-key=${config.heliusApiKey}`
           );
-          logger.info("Webhook updated with auth header", webhook.webhookID);
-        } else {
-          logger.info("Webhook already exists", webhook.webhookID);
+          logger.info("Deleted duplicate Helius webhook", duplicate.webhookID);
+        } catch (error: any) {
+          logger.warn("Failed to delete duplicate Helius webhook", error.message);
         }
-        return webhook.webhookID;
       }
+    };
+
+    if (exactMatches.length > 0) {
+      const [primaryMatch] = exactMatches;
+      await dedupeWebhooks(exactMatches, primaryMatch.webhookID);
+
+      if (config.webhookSecret) {
+        await axios.put(
+          `${HELIUS_API_BASE}/webhooks/${primaryMatch.webhookID}?api-key=${config.heliusApiKey}`,
+          {
+            webhookURL: webhookUrl,
+            transactionTypes: config.heliusTransactionTypes,
+            accountAddresses: [config.pumpfunProgram],
+            webhookType: "enhanced",
+            authHeader: `Bearer ${config.webhookSecret}`,
+          }
+        );
+        logger.info("Webhook updated with auth header", primaryMatch.webhookID);
+      } else {
+        logger.info("Webhook already exists", primaryMatch.webhookID);
+      }
+      return primaryMatch.webhookID;
+    }
+
+    if (pumpfunMatches.length > 0) {
+      const [primaryMatch] = pumpfunMatches;
+      await dedupeWebhooks(pumpfunMatches, primaryMatch.webhookID);
+
+      const updatePayload: any = {
+        webhookURL: webhookUrl,
+        transactionTypes: config.heliusTransactionTypes,
+        accountAddresses: [config.pumpfunProgram],
+        webhookType: "enhanced",
+      };
+
+      if (config.webhookSecret) {
+        updatePayload.authHeader = `Bearer ${config.webhookSecret}`;
+      }
+
+      await axios.put(
+        `${HELIUS_API_BASE}/webhooks/${primaryMatch.webhookID}?api-key=${config.heliusApiKey}`,
+        updatePayload
+      );
+
+      logger.info("Webhook updated to new URL", primaryMatch.webhookID);
+      return primaryMatch.webhookID;
     }
 
     const webhookConfig: any = {
       webhookURL: webhookUrl,
-      transactionTypes: ["Any"],
+      transactionTypes: config.heliusTransactionTypes,
       accountAddresses: [config.pumpfunProgram],
       webhookType: "enhanced",
     };

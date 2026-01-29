@@ -4,59 +4,25 @@ import * as db from "./db";
 import webhookRoutes, { getLastWebhookReceived, getWebhookCount } from "./webhookRoutes";
 import { getWebhooks } from "./services/heliusService";
 import type { BotStatus } from "@shared/schema";
-import { Bot, webhookCallback } from "grammy";
-import { config } from "./utils/config";
-import { logger } from "./utils/logger";
-import { registerCommands } from "./bot/commands";
-import { setBotInstance } from "./services/alertService";
+import { getBot, isBotRunning, startBot } from "./bot";
 
 const startTime = Date.now();
-let telegramBot: Bot | null = null;
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  await startBot(app);
   app.use(webhookRoutes);
-  
-  // Register Telegram webhook route FIRST before any other routes
-  if (config.telegramBotToken) {
-    try {
-      telegramBot = new Bot(config.telegramBotToken);
-      const me = await telegramBot.api.getMe();
-      logger.info(`Bot authenticated as @${me.username}`);
-      
-      registerCommands(telegramBot);
-      setBotInstance(telegramBot);
-      
-      telegramBot.catch((err) => {
-        logger.error("Bot error", err);
-      });
-      
-      // Always register the webhook route
-      app.post("/telegram/webhook", webhookCallback(telegramBot, "express"));
-      logger.info("Telegram webhook route registered at /telegram/webhook");
-      
-      // Always use polling mode - more reliable for Replit
-      logger.info("Using polling mode for bot");
-      await telegramBot.api.deleteWebhook({ drop_pending_updates: true });
-      telegramBot.start({
-        onStart: () => logger.info("Telegram bot polling started"),
-      }).catch((err) => {
-        logger.warn("Bot polling issue", err.message);
-      });
-    } catch (err: any) {
-      logger.error("Failed to setup Telegram bot", err.message);
-    }
-  }
   
   app.get("/api/status", async (req, res) => {
     try {
       const webhooks = await getWebhooks();
       const webhookRegistered = webhooks.length > 0;
+      const bot = getBot();
       
       const status: BotStatus = {
-        isOnline: telegramBot !== null,
+        isOnline: bot !== null && isBotRunning(),
         webhookRegistered,
         totalUsers: db.getUserCount(),
         totalCreators: db.getCreatorCount(),

@@ -14,7 +14,13 @@ export async function startBot(app?: Express): Promise<Bot | null> {
     return null;
   }
 
+  if (bot) {
+    logger.warn("Telegram bot already initialized - skipping duplicate startup");
+    return bot;
+  }
+
   try {
+    logger.info("Starting Telegram bot initialization");
     bot = new Bot(config.telegramBotToken);
 
     const me = await bot.api.getMe();
@@ -30,12 +36,14 @@ export async function startBot(app?: Express): Promise<Bot | null> {
     const webhookPath = "/telegram/webhook";
     
     const productionDomain = process.env.REPLIT_DOMAINS?.split(",")[0];
-    
-    if (productionDomain && app) {
-      const webhookUrl = `https://${productionDomain}${webhookPath}`;
-      
+
+    if (app) {
       app.post(webhookPath, webhookCallback(bot, "express"));
       logger.info(`Telegram webhook endpoint registered at ${webhookPath}`);
+    }
+
+    if (productionDomain && app) {
+      const webhookUrl = `https://${productionDomain}${webhookPath}`;
       
       try {
         await bot.api.setWebhook(webhookUrl, {

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import fs from "fs";
 import { config } from "../utils/config";
 import { logger } from "../utils/logger";
 import { getCurrentTimestamp } from "../utils/helpers";
@@ -13,10 +14,26 @@ import type {
 let db: Database.Database;
 
 export function initDatabase(): void {
-  db = new Database(config.databasePath);
-  db.pragma("journal_mode = WAL");
-  runMigrations();
-  logger.info("Database initialized");
+  try {
+    db = new Database(config.databasePath);
+    db.pragma("journal_mode = WAL");
+    runMigrations();
+    logger.info("Database initialized");
+  } catch (error: any) {
+    const message = error?.message || "";
+    if (message.includes("database disk image is malformed") && config.autoResetDatabaseOnCorruption) {
+      logger.warn("Database corrupted - resetting SQLite file");
+      if (fs.existsSync(config.databasePath)) {
+        fs.unlinkSync(config.databasePath);
+      }
+      db = new Database(config.databasePath);
+      db.pragma("journal_mode = WAL");
+      runMigrations();
+      logger.info("Database recreated after corruption");
+      return;
+    }
+    throw error;
+  }
 }
 
 function runMigrations(): void {
