@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initDatabase } from "./db";
 import { setupWebhook } from "./services/heliusService";
+import { startBot } from "./bot";
 import { startMcTracker } from "./jobs/mcTracker";
 import { startStatsAggregator } from "./jobs/statsAggregator";
 import { logger } from "./utils/logger";
@@ -103,7 +104,14 @@ app.use((req, res, next) => {
     },
     async () => {
       log(`serving on port ${port}`);
-      
+
+      try {
+        await startBot(app);
+        logger.info("Telegram bot started");
+      } catch (error: any) {
+        logger.error("Failed to start Telegram bot", error.message);
+      }
+
       const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0];
       if (replitDomain) {
         const webhookUrl = `https://${replitDomain}/webhook/helius`;
