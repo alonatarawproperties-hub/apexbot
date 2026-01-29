@@ -8,16 +8,34 @@ import type { BotStatus } from "@shared/schema";
 
 const startTime = Date.now();
 
+// Cache webhook registration status (refresh every 5 minutes)
+let cachedWebhookRegistered = false;
+let webhookCacheTime = 0;
+const WEBHOOK_CACHE_TTL = 5 * 60 * 1000;
+
+async function isWebhookRegistered(): Promise<boolean> {
+  if (Date.now() - webhookCacheTime < WEBHOOK_CACHE_TTL) {
+    return cachedWebhookRegistered;
+  }
+  try {
+    const webhooks = await getWebhooks();
+    cachedWebhookRegistered = webhooks.length > 0;
+    webhookCacheTime = Date.now();
+  } catch {
+    // Return cached value on error
+  }
+  return cachedWebhookRegistered;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   app.use(webhookRoutes);
-  
+
   app.get("/api/status", async (req, res) => {
     try {
-      const webhooks = await getWebhooks();
-      const webhookRegistered = webhooks.length > 0;
+      const webhookRegistered = await isWebhookRegistered();
       
       const status: BotStatus = {
         isOnline: isBotRunning(),
