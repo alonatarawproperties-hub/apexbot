@@ -1,7 +1,7 @@
 import * as db from "../db";
 import { getTokenInfo, getTokensByAddresses } from "./dexscreener";
 import { logger } from "../utils/logger";
-import { getCurrentTimestamp, getPumpFunUrl } from "../utils/helpers";
+import { getCurrentTimestamp, getPumpFunUrl, formatMarketCap } from "../utils/helpers";
 import type { Creator, Token, UserSettings, CreatorStats } from "@shared/schema";
 
 export async function processNewToken(
@@ -73,7 +73,22 @@ export async function processNewToken(
   };
 }
 
-export async function recalculateCreatorStats(creatorAddress: string): Promise<void> {
+export type CreatorTier = "elite" | "proven" | "none";
+
+export function getCreatorTier(bondedCount: number, hits100kCount: number, totalLaunches: number, bestMcEver: number): CreatorTier {
+  const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
+
+  // Elite: 500k+ MC hit OR 3+ bonded with 50%+ rate
+  if (bestMcEver >= 500000) return "elite";
+  if (bondedCount >= 3 && bondingRate >= 0.5) return "elite";
+
+  // Proven: 1+ token hit 100k+ OR 2+ bonded tokens
+  if (hits100kCount >= 1) return "proven";
+  if (bondedCount >= 2) return "proven";
+
+  return "none";
+}
+
   const tokens = db.getTokensByCreator(creatorAddress);
   
   if (tokens.length === 0) {
@@ -119,21 +134,20 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
   const totalLaunches = tokens.length;
   const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
 
-  // Qualification: creator must have at least 2 past launches AND meet one of:
-  // - High bonding rate (50%+ with at least 2 bonded)
-  // - At least 1 token that hit 100k+ market cap
-  const hasEnoughHistory = totalLaunches >= 2;
-  const hasHighBondingRate = bondedCount >= 2 && bondingRate >= 0.5;
-  const hasHit100k = hits100kCount >= 1;
-
-  const isQualified = hasEnoughHistory && (hasHighBondingRate || hasHit100k);
+  const tier = getCreatorTier(bondedCount, hits100kCount, totalLaunches, bestMcEver);
+  const isQualified = tier !== "none";
   let qualificationReason: string | null = null;
 
-  if (isQualified) {
+  if (tier === "elite") {
     const reasons: string[] = [];
-    if (hasHighBondingRate) reasons.push(`${(bondingRate * 100).toFixed(0)}% bonding rate (${bondedCount}/${totalLaunches})`);
-    if (hasHit100k) reasons.push(`${hits100kCount} hit 100k MC`);
-    qualificationReason = reasons.join(", ");
+    if (bestMcEver >= 500000) reasons.push(`best MC ${formatMarketCap(bestMcEver)}`);
+    if (bondedCount >= 3 && bondingRate >= 0.5) reasons.push(`${(bondingRate * 100).toFixed(0)}% bonding rate (${bondedCount}/${totalLaunches})`);
+    qualificationReason = `ELITE: ${reasons.join(", ")}`;
+  } else if (tier === "proven") {
+    const reasons: string[] = [];
+    if (hits100kCount >= 1) reasons.push(`${hits100kCount} hit 100k MC`);
+    if (bondedCount >= 2) reasons.push(`${bondedCount} bonded tokens`);
+    qualificationReason = `PROVEN: ${reasons.join(", ")}`;
   }
   
   db.upsertCreator({
@@ -149,17 +163,19 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
 }
 
 export function checkQualification(creator: Creator, settings: UserSettings): boolean {
-  // Must have at least 2 launches to have meaningful stats
-  if (creator.total_launches < 2) return false;
-
-  const bondingRate = creator.total_launches > 0
-    ? creator.bonded_count / creator.total_launches
-    : 0;
-
-  // Check bonding: need at least min_bonded_count bonded AND 50%+ rate
-  if (creator.bonded_count >= settings.min_bonded_count && bondingRate >= 0.5) return true;
-  // Check 100k hits
-  if (creator.hits_100k_count >= settings.min_100k_count) return true;
+  const tier = getCreatorTier(
+    creator.bonded_count,
+    creator.hits_100k_count,
+    creator.total_launches,
+    creator.best_mc_ever,
+  );
+  // Elite always qualifies
+  if (tier === "elite") return true;
+  // Proven qualifies if it meets user's custom thresholds
+  if (tier === "proven") {
+    if (creator.bonded_count >= settings.min_bonded_count) return true;
+    if (creator.hits_100k_count >= settings.min_100k_count) return true;
+  }
   return false;
 }
 
