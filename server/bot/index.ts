@@ -12,40 +12,41 @@ export async function startBot(): Promise<Bot | null> {
     logger.warn("TELEGRAM_BOT_TOKEN is not set - bot disabled");
     return null;
   }
-  
-  bot = new Bot(config.telegramBotToken);
-  
-  registerCommands(bot);
-  
-  setBotInstance(bot);
-  
-  bot.catch((err) => {
-    if (err instanceof GrammyError && err.error_code === 409) {
-      logger.warn("Bot conflict detected - another instance is running (likely published version)");
-      isRunning = false;
-    } else {
-      logger.error("Bot error", err);
-    }
-  });
-  
+
   try {
+    bot = new Bot(config.telegramBotToken);
+
+    // Test the token is valid
+    const me = await bot.api.getMe();
+    logger.info(`Bot authenticated as @${me.username}`);
+
+    // Drop pending updates so we get a clean polling session
+    await bot.api.deleteWebhook({ drop_pending_updates: true });
+    logger.info("Cleared pending updates");
+
+    registerCommands(bot);
+    setBotInstance(bot);
+
+    bot.catch((err) => {
+      if (err instanceof GrammyError && err.error_code === 409) {
+        logger.warn("Bot conflict detected - another instance is running");
+        isRunning = false;
+      } else {
+        logger.error("Bot error", err);
+      }
+    });
+
     bot.start({
       onStart: () => {
         isRunning = true;
-        logger.info("Telegram bot started");
+        logger.info("Telegram bot polling started successfully");
       },
-    }).catch((err) => {
-      if (err instanceof GrammyError && err.error_code === 409) {
-        logger.warn("Bot conflict: another instance is running. Dashboard will continue working.");
-        isRunning = false;
-      } else {
-        logger.error("Bot start error", err);
-      }
     });
-  } catch (err) {
-    logger.warn("Failed to start bot - dashboard will continue working");
+  } catch (err: any) {
+    logger.error("Failed to start bot", err.message);
+    return null;
   }
-  
+
   return bot;
 }
 
