@@ -6,6 +6,7 @@ import { getBot, isBotRunning, startBot } from "./bot";
 import { startPumpPortalStream, isPumpPortalConnected } from "./services/pumpPortalService";
 import { startMcTracker } from "./jobs/mcTracker";
 import { startStatsAggregator } from "./jobs/statsAggregator";
+import { runBackfill, getBackfillStatus } from "./jobs/backfillJob";
 
 const startTime = Date.now();
 
@@ -74,6 +75,32 @@ export async function registerRoutes(
     try {
       const count = db.getAlertsSentToday();
       res.json({ count });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/backfill/start", (req, res) => {
+    try {
+      const status = getBackfillStatus();
+      if (status.isRunning) {
+        res.status(400).json({ error: "Backfill already in progress", status });
+        return;
+      }
+      
+      const maxTokens = parseInt(req.query.maxTokens as string) || 20000;
+      runBackfill(maxTokens);
+      
+      res.json({ message: "Backfill started", maxTokens });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/backfill/status", (req, res) => {
+    try {
+      const status = getBackfillStatus();
+      res.json(status);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
