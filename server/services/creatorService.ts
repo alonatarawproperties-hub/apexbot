@@ -47,20 +47,10 @@ export async function processNewToken(
     });
   }
 
-  const tokenInfo = await getTokenInfo(tokenAddress);
-  if (tokenInfo) {
-    db.updateToken(tokenAddress, {
-      name: tokenInfo.name,
-      symbol: tokenInfo.symbol,
-      current_mc: tokenInfo.marketCap,
-      peak_mc: tokenInfo.marketCap,
-      peak_mc_timestamp: getCurrentTimestamp(),
-      bonded: tokenInfo.isBonded ? 1 : 0,
-    });
-    token = db.getToken(tokenAddress)!;
-  }
+  // Don't call DexScreener here -- new tokens won't have data yet.
+  // The mcTracker job will pick up market data on its next run (every 2 min).
+  // Use existing creator stats from DB to decide qualification.
 
-  await recalculateCreatorStats(creatorAddress);
   creator = db.getCreator(creatorAddress)!;
 
   const watcherUserIds = db.getWatchersForCreator(creatorAddress);
