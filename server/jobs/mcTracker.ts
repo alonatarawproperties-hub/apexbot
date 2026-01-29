@@ -46,9 +46,14 @@ async function runMcTracking(): Promise<void> {
       
       if (!info) continue;
       
+      // If MC ever hit 69K+, it's bonded (PumpFun bonding threshold)
+      // Also trust DexScreener's isBonded flag if true
+      const effectivePeakMc = Math.max(info.marketCap, token.peak_mc);
+      const isBonded = info.isBonded || effectivePeakMc >= 69000 || token.bonded === 1;
+      
       const updates: any = {
         current_mc: info.marketCap,
-        bonded: info.isBonded ? 1 : 0,
+        bonded: isBonded ? 1 : 0,
       };
       
       if (info.marketCap > token.peak_mc) {
@@ -70,7 +75,7 @@ async function runMcTracking(): Promise<void> {
       }
     }
     
-    for (const creatorAddress of creatorsToRecalculate) {
+    for (const creatorAddress of Array.from(creatorsToRecalculate)) {
       await recalculateCreatorStats(creatorAddress);
     }
     

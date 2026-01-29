@@ -7,6 +7,7 @@ import { startPumpPortalStream, isPumpPortalConnected } from "./services/pumpPor
 import { startMcTracker } from "./jobs/mcTracker";
 import { startStatsAggregator } from "./jobs/statsAggregator";
 import { runBackfill, getBackfillStatus } from "./jobs/backfillJob";
+import { recalculateCreatorStats } from "./services/creatorService";
 
 const startTime = Date.now();
 
@@ -101,6 +102,24 @@ export async function registerRoutes(
     try {
       const status = getBackfillStatus();
       res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/creators/recalculate", async (req, res) => {
+    try {
+      const creators = db.getAllCreators();
+      let updated = 0;
+      
+      for (const creator of creators) {
+        if (creator.hits_100k_count > 0 && creator.bonded_count === 0) {
+          await recalculateCreatorStats(creator.address);
+          updated++;
+        }
+      }
+      
+      res.json({ message: "Recalculation complete", updated });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

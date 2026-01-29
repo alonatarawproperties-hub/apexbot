@@ -97,9 +97,13 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
     const info = tokenInfoMap.get(token.address);
 
     if (info) {
+      const effectivePeakMc = Math.max(info.marketCap, token.peak_mc);
+      // If MC ever hit 69K+, it's bonded (PumpFun bonding threshold)
+      const isBonded = info.isBonded || effectivePeakMc >= 69000 || token.bonded === 1;
+      
       db.updateToken(token.address, {
         current_mc: info.marketCap,
-        bonded: info.isBonded ? 1 : 0,
+        bonded: isBonded ? 1 : 0,
         name: info.name,
         symbol: info.symbol,
       });
@@ -111,12 +115,13 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
         });
       }
 
-      const effectivePeakMc = Math.max(info.marketCap, token.peak_mc);
-      if (info.isBonded) bondedCount++;
+      if (isBonded) bondedCount++;
       if (effectivePeakMc >= 100000) hits100kCount++;
       if (effectivePeakMc > bestMcEver) bestMcEver = effectivePeakMc;
     } else {
-      if (token.bonded === 1) bondedCount++;
+      // If peak MC >= 69K, it's bonded
+      const isBonded = token.bonded === 1 || token.peak_mc >= 69000;
+      if (isBonded) bondedCount++;
       if (token.peak_mc >= 100000) hits100kCount++;
       if (token.peak_mc > bestMcEver) bestMcEver = token.peak_mc;
     }
