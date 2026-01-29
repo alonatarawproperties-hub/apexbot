@@ -3,7 +3,6 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initDatabase } from "./db";
-import { startBot } from "./bot";
 import { setupWebhook } from "./services/heliusService";
 import { startMcTracker } from "./jobs/mcTracker";
 import { startStatsAggregator } from "./jobs/statsAggregator";
@@ -87,14 +86,6 @@ app.use((req, res, next) => {
 
     return res.status(status).json({ message });
   });
-
-  // Start bot BEFORE static file serving so webhook route is registered first
-  try {
-    await startBot(app);
-    logger.info("Telegram bot started");
-  } catch (error: any) {
-    logger.error("Failed to start Telegram bot", error.message);
-  }
 
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);

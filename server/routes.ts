@@ -2,11 +2,16 @@ import type { Express } from "express";
 import { type Server } from "http";
 import * as db from "./db";
 import webhookRoutes, { getLastWebhookReceived, getWebhookCount } from "./webhookRoutes";
-import { isBotRunning } from "./bot";
 import { getWebhooks } from "./services/heliusService";
 import type { BotStatus } from "@shared/schema";
+import { Bot, webhookCallback } from "grammy";
+import { config } from "./utils/config";
+import { logger } from "./utils/logger";
+import { registerCommands } from "./bot/commands";
+import { setBotInstance } from "./services/alertService";
 
 const startTime = Date.now();
+let telegramBot: Bot | null = null;
 
 export async function registerRoutes(
   httpServer: Server,
@@ -14,13 +19,57 @@ export async function registerRoutes(
 ): Promise<Server> {
   app.use(webhookRoutes);
   
+  // Register Telegram webhook route FIRST before any other routes
+  if (config.telegramBotToken) {
+    try {
+      telegramBot = new Bot(config.telegramBotToken);
+      const me = await telegramBot.api.getMe();
+      logger.info(`Bot authenticated as @${me.username}`);
+      
+      registerCommands(telegramBot);
+      setBotInstance(telegramBot);
+      
+      telegramBot.catch((err) => {
+        logger.error("Bot error", err);
+      });
+      
+      // Always register the webhook route
+      app.post("/telegram/webhook", webhookCallback(telegramBot, "express"));
+      logger.info("Telegram webhook route registered at /telegram/webhook");
+      
+      // Set the webhook URL - only for production (.replit.app domain)
+      const domains = process.env.REPLIT_DOMAINS?.split(",") || [];
+      const productionDomain = domains.find(d => d.endsWith('.replit.app'));
+      
+      if (productionDomain) {
+        const webhookUrl = `https://${productionDomain}/telegram/webhook`;
+        await telegramBot.api.setWebhook(webhookUrl, {
+          drop_pending_updates: true,
+          allowed_updates: ["message", "callback_query"],
+        });
+        logger.info(`Telegram webhook set to: ${webhookUrl}`);
+      } else {
+        // Development mode - use polling
+        logger.info("Development mode - using polling");
+        await telegramBot.api.deleteWebhook({ drop_pending_updates: true });
+        telegramBot.start({
+          onStart: () => logger.info("Telegram bot polling started"),
+        }).catch((err) => {
+          logger.warn("Bot polling issue", err.message);
+        });
+      }
+    } catch (err: any) {
+      logger.error("Failed to setup Telegram bot", err.message);
+    }
+  }
+  
   app.get("/api/status", async (req, res) => {
     try {
       const webhooks = await getWebhooks();
       const webhookRegistered = webhooks.length > 0;
       
       const status: BotStatus = {
-        isOnline: isBotRunning(),
+        isOnline: telegramBot !== null,
         webhookRegistered,
         totalUsers: db.getUserCount(),
         totalCreators: db.getCreatorCount(),
