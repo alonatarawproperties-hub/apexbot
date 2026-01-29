@@ -3,9 +3,6 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initDatabase } from "./db";
-import { setupWebhook } from "./services/heliusService";
-import { startMcTracker } from "./jobs/mcTracker";
-import { startStatsAggregator } from "./jobs/statsAggregator";
 import { logger } from "./utils/logger";
 
 const app = express();
@@ -101,23 +98,8 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    async () => {
+    () => {
       log(`serving on port ${port}`);
-      
-      const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0];
-      if (replitDomain) {
-        const webhookUrl = `https://${replitDomain}/webhook/helius`;
-        try {
-          await setupWebhook(webhookUrl);
-          logger.info(`Helius webhook configured: ${webhookUrl}`);
-        } catch (error: any) {
-          logger.error("Failed to setup Helius webhook", error.message);
-        }
-      }
-      
-      startMcTracker();
-      startStatsAggregator();
-      
       logger.info("🔺 Apex is online and tracking");
     },
   );

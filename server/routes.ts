@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import * as db from "./db";
-import webhookRoutes, { getLastWebhookReceived, getWebhookCount } from "./webhookRoutes";
-import { getWebhooks } from "./services/heliusService";
 import type { BotStatus } from "@shared/schema";
 import { getBot, isBotRunning, startBot } from "./bot";
+import { startPumpPortalStream, isPumpPortalConnected } from "./services/pumpPortalService";
+import { startMcTracker } from "./jobs/mcTracker";
+import { startStatsAggregator } from "./jobs/statsAggregator";
 
 const startTime = Date.now();
 
@@ -12,24 +13,25 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  await startBot(app);
-  app.use(webhookRoutes);
+  await startBot();
+  
+  startPumpPortalStream();
+  startMcTracker();
+  startStatsAggregator();
   
   app.get("/api/status", async (req, res) => {
     try {
-      const webhooks = await getWebhooks();
-      const webhookRegistered = webhooks.length > 0;
       const bot = getBot();
       
       const status: BotStatus = {
         isOnline: bot !== null && isBotRunning(),
-        webhookRegistered,
+        webhookRegistered: isPumpPortalConnected(),
         totalUsers: db.getUserCount(),
         totalCreators: db.getCreatorCount(),
         totalTokens: db.getTokenCount(),
         qualifiedCreators: db.getQualifiedCreatorCount(),
         alertsSentToday: db.getAlertsSentToday(),
-        lastWebhookReceived: getLastWebhookReceived(),
+        lastWebhookReceived: null,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       };
       
