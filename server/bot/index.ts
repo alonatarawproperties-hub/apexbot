@@ -8,6 +8,26 @@ import type { Express } from "express";
 let bot: Bot | null = null;
 let isRunning = false;
 
+async function startPolling(activeBot: Bot) {
+  logger.info("No webhook active - using polling mode");
+  await activeBot.api.deleteWebhook({ drop_pending_updates: true });
+
+  activeBot
+    .start({
+      onStart: () => {
+        isRunning = true;
+        logger.info("Telegram bot polling started");
+      },
+    })
+    .catch((err) => {
+      if (err instanceof GrammyError && err.error_code === 409) {
+        logger.warn("Bot conflict: another instance is polling");
+      } else {
+        logger.error("Bot polling error", err);
+      }
+    });
+}
+
 export async function startBot(app?: Express): Promise<Bot | null> {
   if (!config.telegramBotToken) {
     logger.warn("TELEGRAM_BOT_TOKEN is not set - bot disabled");
@@ -44,7 +64,7 @@ export async function startBot(app?: Express): Promise<Bot | null> {
 
     if (productionDomain && app) {
       const webhookUrl = `https://${productionDomain}${webhookPath}`;
-      
+
       try {
         await bot.api.setWebhook(webhookUrl, {
           drop_pending_updates: true,
@@ -54,23 +74,10 @@ export async function startBot(app?: Express): Promise<Bot | null> {
         isRunning = true;
       } catch (err: any) {
         logger.error("Failed to set Telegram webhook", err.message);
+        await startPolling(bot);
       }
     } else {
-      logger.info("No production domain - using polling mode");
-      await bot.api.deleteWebhook({ drop_pending_updates: true });
-      
-      bot.start({
-        onStart: () => {
-          isRunning = true;
-          logger.info("Telegram bot polling started");
-        },
-      }).catch((err) => {
-        if (err instanceof GrammyError && err.error_code === 409) {
-          logger.warn("Bot conflict: another instance is polling");
-        } else {
-          logger.error("Bot polling error", err);
-        }
-      });
+      await startPolling(bot);
     }
     
     logger.info("Telegram bot initialized");
