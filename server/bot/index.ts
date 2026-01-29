@@ -1,66 +1,71 @@
-import { Bot, GrammyError } from "grammy";
+import { Bot, GrammyError, webhookCallback } from "grammy";
 import { config } from "../utils/config";
 import { logger } from "../utils/logger";
 import { registerCommands } from "./commands";
 import { setBotInstance } from "../services/alertService";
+import type { Express } from "express";
 
 let bot: Bot | null = null;
 let isRunning = false;
 
-export async function startBot(): Promise<Bot | null> {
+export async function startBot(app?: Express): Promise<Bot | null> {
   if (!config.telegramBotToken) {
     logger.warn("TELEGRAM_BOT_TOKEN is not set - bot disabled");
     return null;
   }
 
-  // Skip bot polling if explicitly disabled (development environment)
-  if (process.env.SKIP_BOT_POLLING === 'true') {
-    logger.info("Bot polling disabled (SKIP_BOT_POLLING=true)");
-    return null;
-  }
-
-  logger.info("Bot polling enabled - starting bot...");
-
   try {
     bot = new Bot(config.telegramBotToken);
 
-    // Test the token is valid
     const me = await bot.api.getMe();
     logger.info(`Bot authenticated as @${me.username}`);
-
-    // Drop pending updates so we get a clean polling session
-    await bot.api.deleteWebhook({ drop_pending_updates: true });
-    logger.info("Cleared pending updates");
 
     registerCommands(bot);
     setBotInstance(bot);
 
     bot.catch((err) => {
-      if (err instanceof GrammyError && err.error_code === 409) {
-        logger.warn("Bot conflict detected - another instance is running");
-        isRunning = false;
-      } else {
-        logger.error("Bot error", err);
-      }
+      logger.error("Bot error", err);
     });
 
-    logger.info("Starting bot polling...");
+    const webhookPath = "/telegram/webhook";
     
-    bot.start({
-      onStart: () => {
+    const productionDomain = process.env.REPLIT_DOMAINS?.split(",")[0];
+    
+    if (productionDomain && app) {
+      const webhookUrl = `https://${productionDomain}${webhookPath}`;
+      
+      app.post(webhookPath, webhookCallback(bot, "express"));
+      logger.info(`Telegram webhook endpoint registered at ${webhookPath}`);
+      
+      try {
+        await bot.api.setWebhook(webhookUrl, {
+          drop_pending_updates: true,
+          allowed_updates: ["message", "callback_query"],
+        });
+        logger.info(`Telegram webhook set to: ${webhookUrl}`);
         isRunning = true;
-        logger.info("Telegram bot polling started successfully");
-      },
-    }).catch((err) => {
-      if (err instanceof GrammyError && err.error_code === 409) {
-        logger.warn("Bot conflict: another instance is running (published version). Dashboard will continue working.");
-        isRunning = false;
-      } else {
-        logger.error("Bot polling error", err);
+      } catch (err: any) {
+        logger.error("Failed to set Telegram webhook", err.message);
       }
-    });
+    } else {
+      logger.info("No production domain - using polling mode");
+      await bot.api.deleteWebhook({ drop_pending_updates: true });
+      
+      bot.start({
+        onStart: () => {
+          isRunning = true;
+          logger.info("Telegram bot polling started");
+        },
+      }).catch((err) => {
+        if (err instanceof GrammyError && err.error_code === 409) {
+          logger.warn("Bot conflict: another instance is polling");
+        } else {
+          logger.error("Bot polling error", err);
+        }
+      });
+    }
     
-    logger.info("Telegram bot started");
+    logger.info("Telegram bot initialized");
   } catch (err: any) {
     logger.error("Failed to start bot", err.message);
     return null;

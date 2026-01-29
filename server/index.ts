@@ -106,7 +106,7 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
       
       try {
-        await startBot();
+        await startBot(app);
         logger.info("Telegram bot started");
       } catch (error: any) {
         logger.error("Failed to start Telegram bot", error.message);
