@@ -13,10 +13,9 @@ export async function startBot(): Promise<Bot | null> {
     return null;
   }
 
-  // Skip bot polling in development to avoid conflicts with production
-  const isDev = process.env.NODE_ENV !== 'production' && !process.env.REPL_SLUG?.includes('production');
-  if (isDev && process.env.SKIP_BOT_POLLING === 'true') {
-    logger.info("Bot polling disabled in development (SKIP_BOT_POLLING=true)");
+  // Skip bot polling if explicitly disabled (development environment)
+  if (process.env.SKIP_BOT_POLLING === 'true') {
+    logger.info("Bot polling disabled (SKIP_BOT_POLLING=true)");
     return null;
   }
 
