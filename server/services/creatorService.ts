@@ -115,13 +115,23 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
     }
   }
   
-  const isQualified = bondedCount >= 1 || hits100kCount >= 1;
+  const totalLaunches = tokens.length;
+  const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
+
+  // Qualification: creator must have at least 2 past launches AND meet one of:
+  // - High bonding rate (50%+ with at least 2 bonded)
+  // - At least 1 token that hit 100k+ market cap
+  const hasEnoughHistory = totalLaunches >= 2;
+  const hasHighBondingRate = bondedCount >= 2 && bondingRate >= 0.5;
+  const hasHit100k = hits100kCount >= 1;
+
+  const isQualified = hasEnoughHistory && (hasHighBondingRate || hasHit100k);
   let qualificationReason: string | null = null;
-  
+
   if (isQualified) {
     const reasons: string[] = [];
-    if (bondedCount >= 1) reasons.push(`${bondedCount} bonded`);
-    if (hits100kCount >= 1) reasons.push(`${hits100kCount} hit 100k MC`);
+    if (hasHighBondingRate) reasons.push(`${(bondingRate * 100).toFixed(0)}% bonding rate (${bondedCount}/${totalLaunches})`);
+    if (hasHit100k) reasons.push(`${hits100kCount} hit 100k MC`);
     qualificationReason = reasons.join(", ");
   }
   
@@ -138,7 +148,16 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
 }
 
 export function checkQualification(creator: Creator, settings: UserSettings): boolean {
-  if (creator.bonded_count >= settings.min_bonded_count) return true;
+  // Must have at least 2 launches to have meaningful stats
+  if (creator.total_launches < 2) return false;
+
+  const bondingRate = creator.total_launches > 0
+    ? creator.bonded_count / creator.total_launches
+    : 0;
+
+  // Check bonding: need at least min_bonded_count bonded AND 50%+ rate
+  if (creator.bonded_count >= settings.min_bonded_count && bondingRate >= 0.5) return true;
+  // Check 100k hits
   if (creator.hits_100k_count >= settings.min_100k_count) return true;
   return false;
 }
