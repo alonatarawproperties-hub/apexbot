@@ -13,19 +13,20 @@ export async function checkIfSpamLauncher(
 ): Promise<SpamCheckResult> {
   const successCount = bondedCount + hits100kCount;
   
-  if (totalLaunchesInDb < 50) {
+  if (totalLaunchesInDb < 20) {
     return { isSpam: false };
   }
   
-  if (totalLaunchesInDb >= 50 && successCount === 0) {
+  const successRate = (successCount / totalLaunchesInDb) * 100;
+  
+  if (totalLaunchesInDb >= 20 && successCount === 0) {
     return {
       isSpam: true,
       reason: `No successes in ${totalLaunchesInDb} launches`
     };
   }
   
-  if (totalLaunchesInDb >= 100 && successCount <= 2) {
-    const successRate = (successCount / totalLaunchesInDb) * 100;
+  if (totalLaunchesInDb >= 25 && successCount <= 2 && successRate < 10) {
     return {
       isSpam: true,
       reason: `Spam launcher: only ${successCount} successes in ${totalLaunchesInDb} launches (${successRate.toFixed(1)}%)`
