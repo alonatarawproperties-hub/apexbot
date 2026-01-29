@@ -1,0 +1,396 @@
+Got it. Here's the updated prompt with Apex branding:
+
+Project: Apex - PumpFun Creator Tracker Telegram Bot
+Build a Telegram bot called Apex that monitors PumpFun token launches in real-time and alerts when tokens are created by historically successful creators. Success is defined by configurable thresholds: bonded tokens and/or 100k+ MC hits that held for a minimum duration.
+Tech Stack:
+
+Node.js + Express.js
+SQLite with better-sqlite3
+grammy (Telegram bot framework)
+Helius webhooks (real-time PumpFun monitoring)
+DexScreener API (historical MC data, free tier)
+
+Environment Variables:
+TELEGRAM_BOT_TOKEN=8586518507:AAE66rQUH2VKkMS_jvWPe2o3_Y7E2vrsviM
+HELIUS_API_KEY=0862ee2d-3926-4475-9600-91ae3d96d793
+DATABASE_PATH=./data/apex.db
+WEBHOOK_SECRET=apex_webhook_secret_2024
+PORT=3000
+Database Schema:
+sql-- Users table (subscription-ready)
+CREATE TABLE IF NOT EXISTS users (
+  telegram_id TEXT PRIMARY KEY,
+  username TEXT,
+  tier TEXT DEFAULT 'free',
+  settings TEXT DEFAULT '{"min_bonded_count":1,"min_100k_count":1,"mc_hold_minutes":5,"lookback_days":90,"alert_watched_only":false,"notifications_enabled":true}',
+  alerts_today INTEGER DEFAULT 0,
+  last_alert_reset TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Creators table
+CREATE TABLE IF NOT EXISTS creators (
+  address TEXT PRIMARY KEY,
+  total_launches INTEGER DEFAULT 0,
+  bonded_count INTEGER DEFAULT 0,
+  hits_100k_count INTEGER DEFAULT 0,
+  best_mc_ever REAL DEFAULT 0,
+  is_qualified INTEGER DEFAULT 0,
+  qualification_reason TEXT,
+  last_updated TEXT,
+  first_seen TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tokens table
+CREATE TABLE IF NOT EXISTS tokens (
+  address TEXT PRIMARY KEY,
+  creator_address TEXT,
+  name TEXT,
+  symbol TEXT,
+  bonded INTEGER DEFAULT 0,
+  peak_mc REAL DEFAULT 0,
+  peak_mc_timestamp TEXT,
+  peak_mc_held_minutes INTEGER DEFAULT 0,
+  current_mc REAL DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  pumpfun_url TEXT,
+  FOREIGN KEY (creator_address) REFERENCES creators(address)
+);
+
+-- Watchlist table
+CREATE TABLE IF NOT EXISTS watchlist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT,
+  creator_address TEXT,
+  notes TEXT,
+  added_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(telegram_id),
+  FOREIGN KEY (creator_address) REFERENCES creators(address),
+  UNIQUE(user_id, creator_address)
+);
+
+-- Alerts log
+CREATE TABLE IF NOT EXISTS alerts_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT,
+  creator_address TEXT,
+  token_address TEXT,
+  alert_type TEXT,
+  delivered INTEGER DEFAULT 0,
+  sent_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_creators_qualified ON creators(is_qualified);
+CREATE INDEX IF NOT EXISTS idx_tokens_creator ON tokens(creator_address);
+CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id);
+CREATE INDEX IF NOT EXISTS idx_watchlist_creator ON watchlist(creator_address);
+```
+
+**Project Structure:**
+```
+/src
+  /bot
+    index.js          -- grammy bot setup and initialization
+    commands.js       -- command handlers (/start, /stats, /watch, etc)
+    keyboards.js      -- inline keyboard builders
+    alerts.js         -- alert message formatting and sending
+  /api
+    server.js         -- Express server setup
+    webhookRoutes.js  -- Helius webhook endpoint
+  /services
+    creatorService.js -- creator lookup, qualification logic
+    tokenService.js   -- token tracking, MC monitoring
+    dexscreener.js    -- DexScreener API wrapper with rate limiting
+    alertService.js   -- alert distribution logic
+    heliusService.js  -- Helius webhook parsing, transaction decoding
+  /db
+    index.js          -- SQLite connection and query helpers
+    migrations.js     -- schema initialization
+  /jobs
+    mcTracker.js      -- background MC polling job
+    statsAggregator.js -- periodic stats recalculation
+  /utils
+    config.js         -- centralized config from env vars
+    helpers.js        -- address validation, formatting utilities
+    logger.js         -- simple logging utility
+  index.js            -- main entry point
+/data                 -- SQLite database stored here
+package.json
+Package.json:
+json{
+  "name": "apex",
+  "version": "1.0.0",
+  "description": "PumpFun Creator Tracker Telegram Bot",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "better-sqlite3": "^9.4.3",
+    "grammy": "^1.21.1",
+    "axios": "^1.6.7",
+    "bs58": "^5.0.0"
+  }
+}
+```
+
+**Core Implementation Details:**
+
+**1. Main Entry (src/index.js):**
+- Initialize database with migrations
+- Start Express server for webhooks
+- Start Telegram bot with grammy
+- Initialize background jobs
+- Register Helius webhook on startup if not exists
+- Log: "🔺 Apex is online"
+
+**2. Helius Webhook Handler (src/api/webhookRoutes.js):**
+```
+POST /webhook/helius
+- Verify webhook authenticity
+- Parse transaction for PumpFun token creation
+- Extract: tokenMint, creator (signer), metadata if available
+- Call creatorService.processNewToken(creatorAddress, tokenAddress)
+3. Creator Service (src/services/creatorService.js):
+javascriptasync function processNewToken(creatorAddress, tokenAddress, tokenMetadata) {
+  // 1. Upsert creator in DB
+  // 2. Add token to DB
+  // 3. Fetch creator's historical tokens from DexScreener
+  // 4. Calculate qualification:
+  //    - Count bonded tokens
+  //    - Count tokens that hit 100k MC (held for min duration)
+  // 5. Update creator stats and is_qualified flag
+  // 6. If qualified OR on anyone's watchlist → trigger alertService
+}
+
+async function getCreatorStats(creatorAddress) {
+  // Returns full stats object for /stats command
+}
+
+async function checkQualification(creatorAddress, userSettings) {
+  // Check against specific user's thresholds
+}
+4. DexScreener Service (src/services/dexscreener.js):
+javascript// Rate limited: max 5 requests/second
+async function getTokenInfo(tokenAddress) {
+  // GET https://api.dexscreener.com/latest/dex/tokens/{address}
+  // Returns: { priceUsd, marketCap, liquidity, pairAddress }
+}
+
+async function getTokensByAddresses(addresses) {
+  // Batch fetch multiple tokens
+  // DexScreener allows comma-separated addresses
+}
+5. Helius Service (src/services/heliusService.js):
+javascript// PumpFun Program ID
+const PUMPFUN_PROGRAM = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+
+function parseTokenCreation(transaction) {
+  // Decode PumpFun create instruction
+  // Extract: mint address, creator address, token name/symbol
+  // Return structured data or null if not a creation
+}
+
+async function setupWebhook(webhookUrl) {
+  // POST to Helius to register webhook
+  // https://api.helius.xyz/v0/webhooks
+  // Filter for PumpFun program transactions
+}
+6. Alert Service (src/services/alertService.js):
+javascriptasync function sendNewTokenAlert(creator, token) {
+  // 1. Get all users who should receive this alert:
+  //    - Users with alert_watched_only=false AND creator is qualified
+  //    - Users who have this creator on watchlist
+  // 2. For each user, check tier limits (alerts_today)
+  // 3. Format message with inline buttons
+  // 4. Send via bot, log to alerts_log
+}
+
+function formatAlertMessage(creator, token, isWatched) {
+  // Returns formatted Telegram message with Apex branding
+}
+```
+
+**7. Telegram Bot Commands (src/bot/commands.js):**
+
+**/start**
+```
+🔺 *Welcome to Apex*
+
+Your edge in tracking successful PumpFun creators.
+
+Apex monitors new token launches and alerts you when proven creators deploy new tokens.
+
+*Quick Start:*
+1. Configure your thresholds with /settings
+2. Watch specific creators with /watch <address>
+3. Check any creator with /stats <address>
+
+[⚙️ Settings] [📖 Help]
+```
+
+**/stats <address>**
+- Validate Solana address format
+- Fetch or calculate creator stats
+- Display: total launches, bonded count/rate, 100k hits, best MC
+- Inline buttons: [⭐ Watch] [🔍 View Tokens]
+
+**/watch <address>**
+- Add creator to user's watchlist
+- Confirm with creator's current stats
+- If creator not in DB yet, create entry and start tracking
+
+**/unwatch <address>**
+- Remove from watchlist
+- Confirm removal
+
+**/watchlist**
+- List all watched creators with mini stats
+- Inline buttons per creator: [📊 Stats] [❌ Remove]
+
+**/settings**
+- Show current thresholds as inline keyboard
+- Increment/decrement buttons for each setting
+- Toggle buttons for boolean settings
+
+**/recent**
+- Show last 10 alerts from alerts_log for this user
+
+**/help**
+```
+🔺 *Apex Commands*
+
+/start - Welcome & quick setup
+/stats <address> - Creator statistics
+/watch <address> - Add to watchlist
+/unwatch <address> - Remove from watchlist
+/watchlist - View watched creators
+/settings - Configure thresholds
+/recent - Recent alerts
+
+*How Apex Works:*
+Apex tracks PumpFun creators who have proven success (bonded tokens or 100k+ MC). When they launch again, you get instant alerts.
+
+*Tips:*
+- Lower thresholds = more alerts
+- Use watchlist for high-conviction creators
+- Check /stats before watching
+```
+
+**8. Inline Keyboards (src/bot/keyboards.js):**
+
+Alert message buttons:
+```
+[⭐ Watch Creator] [📊 Full Stats]
+[🔗 PumpFun] [📈 DexScreener]
+```
+
+Settings keyboard:
+```
+🔺 *Apex Settings*
+
+Min Bonded: [−] 1 [+]
+Min 100k Hits: [−] 1 [+]  
+Hold Minutes: [−] 5 [+]
+Lookback Days: [−] 90 [+]
+───────────────
+[Watched Only: OFF] [Alerts: ON]
+[↺ Reset Defaults]
+```
+
+Callback data format: `apex:field:action` (e.g., `apex:min_bonded:inc`)
+
+**9. Background Jobs (src/jobs/):**
+
+**mcTracker.js** (runs every 2 minutes):
+- Get tokens created in last 24 hours from DB
+- Fetch current MC from DexScreener
+- Update peak_mc if current > peak
+- Track how long MC stayed above 100k
+- Update peak_mc_held_minutes
+- Trigger creator requalification if stats changed significantly
+
+**statsAggregator.js** (runs every 30 minutes):
+- Recalculate all creator aggregate stats
+- Update is_qualified flags
+- Clean up stale data
+
+**10. Alert Message Formats:**
+
+For qualified creator (not watched):
+```
+🔺 *APEX ALERT*
+
+*Token:* $SYMBOL (TokenName)
+`<token_address>`
+
+*Creator:* `<creator_address>`
+
+📊 *Creator Stats:*
+├ Launches: 15
+├ Bonded: 3 (20%)
+├ 100k+ MC: 5 (33%)
+└ Best: $2.4M
+
+🔗 [PumpFun](url) • [DexScreener](url)
+```
+
+For watched creator (priority):
+```
+⭐ *APEX - WATCHED CREATOR* ⭐
+
+*Token:* $SYMBOL (TokenName)
+`<token_address>`
+
+*Creator:* `<creator_address>`
+
+📊 *Creator Stats:*
+├ Launches: 15
+├ Bonded: 3 (20%)
+├ 100k+ MC: 5 (33%)
+└ Best: $2.4M
+
+🔗 [PumpFun](url) • [DexScreener](url)
+11. Helius Webhook Registration:
+On server startup, check if webhook exists, if not create:
+javascriptPOST https://api.helius.xyz/v0/webhooks?api-key={API_KEY}
+{
+  "webhookURL": "https://<replit-domain>/webhook/helius",
+  "transactionTypes": ["Any"],
+  "accountAddresses": ["6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"],
+  "webhookType": "enhanced"
+}
+```
+
+**12. Bonding Detection:**
+
+A PumpFun token is considered "bonded" when:
+- Liquidity has been migrated to Raydium
+- DexScreener will show the token with "raydium" as the DEX
+- Check `pair.dexId` in DexScreener response
+
+**Error Handling:**
+- All external API calls wrapped in try/catch with retries
+- Telegram rate limits handled by grammy's auto-retry
+- DexScreener rate limits: implement request queue with 200ms delays
+- Database errors: log and continue, don't crash
+- Invalid addresses: validate before processing, return friendly error
+
+**Logging Format:**
+```
+[APEX] [TIMESTAMP] [LEVEL] Message
+[APEX] 2024-01-15 10:30:00 [INFO] Webhook received: token ABC...
+[APEX] 2024-01-15 10:30:01 [ALERT] Qualified creator detected: XYZ...
+Startup Sequence:
+
+Load environment variables
+Initialize SQLite database
+Run migrations
+Start Express server
+Register/verify Helius webhook
+Start Telegram bot
+Start background jobs
+Log: "🔺 Apex is online and tracking"
