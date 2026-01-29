@@ -192,7 +192,12 @@ export function getCreatorCount(): number {
 }
 
 export function getQualifiedCreatorCount(): number {
-  const row = db.prepare("SELECT COUNT(*) as count FROM creators WHERE is_qualified = 1").get() as any;
+  // Exclude spam launchers: >500 launches with <1% success rate
+  const row = db.prepare(`
+    SELECT COUNT(*) as count FROM creators 
+    WHERE is_qualified = 1 
+    AND NOT (total_launches > 500 AND (bonded_count * 100.0 / total_launches) < 1)
+  `).get() as any;
   return row.count;
 }
 

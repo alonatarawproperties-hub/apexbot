@@ -8,6 +8,8 @@ export const userSettingsSchema = z.object({
   lookback_days: z.number().default(90),
   alert_watched_only: z.boolean().default(false),
   notifications_enabled: z.boolean().default(true),
+  min_success_rate: z.number().default(1),
+  max_launches: z.number().default(500),
 });
 
 export type UserSettings = z.infer<typeof userSettingsSchema>;

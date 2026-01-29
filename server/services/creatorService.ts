@@ -159,6 +159,16 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
 }
 
 export function checkQualification(creator: Creator, settings: UserSettings): boolean {
+  // Filter out spam launchers with too many launches and low success rate
+  if (creator.total_launches > settings.max_launches) {
+    const successRate = creator.total_launches > 0 
+      ? ((creator.bonded_count / creator.total_launches) * 100) 
+      : 0;
+    if (successRate < settings.min_success_rate) {
+      return false;
+    }
+  }
+
   const tier = getCreatorTier(
     creator.bonded_count,
     creator.hits_100k_count,
