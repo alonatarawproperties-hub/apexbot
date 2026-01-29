@@ -88,6 +88,14 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
+  // Start bot BEFORE static file serving so webhook route is registered first
+  try {
+    await startBot(app);
+    logger.info("Telegram bot started");
+  } catch (error: any) {
+    logger.error("Failed to start Telegram bot", error.message);
+  }
+
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -104,13 +112,6 @@ app.use((req, res, next) => {
     },
     async () => {
       log(`serving on port ${port}`);
-      
-      try {
-        await startBot(app);
-        logger.info("Telegram bot started");
-      } catch (error: any) {
-        logger.error("Failed to start Telegram bot", error.message);
-      }
       
       const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0];
       if (replitDomain) {
