@@ -86,6 +86,10 @@ function attemptReconnect(): void {
 
 async function handleNewToken(token: PumpPortalToken): Promise<void> {
   try {
+    if (!token.mint.toLowerCase().endsWith("pump")) {
+      return;
+    }
+    
     const result = await processNewToken(
       token.traderPublicKey,
       token.mint,
