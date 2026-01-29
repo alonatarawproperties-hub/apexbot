@@ -56,8 +56,8 @@ Apex monitors new token launches and alerts you when proven creators deploy new 
 
 *Quick Start:*
 1\\. Configure your thresholds with /settings
-2\\. Watch specific creators with /watch <address>
-3\\. Check any creator with /stats <address>`;
+2\\. Watch specific creators with /watch \\<address\\>
+3\\. Check any creator with /stats \\<address\\>`;
   
   await ctx.reply(message, {
     parse_mode: "MarkdownV2",
@@ -71,9 +71,9 @@ async function handleHelp(ctx: Context): Promise<void> {
   const message = `🔺 *Apex Commands*
 
 /start \\- Welcome & quick setup
-/stats <address> \\- Creator statistics
-/watch <address> \\- Add to watchlist
-/unwatch <address> \\- Remove from watchlist
+/stats \\<address\\> \\- Creator statistics
+/watch \\<address\\> \\- Add to watchlist
+/unwatch \\<address\\> \\- Remove from watchlist
 /watchlist \\- View watched creators
 /settings \\- Configure thresholds
 /recent \\- Recent alerts
@@ -99,7 +99,7 @@ async function handleStats(ctx: Context): Promise<void> {
   const parts = text.split(" ");
   
   if (parts.length < 2) {
-    await ctx.reply("Usage: /stats <creator\\_address>", { parse_mode: "MarkdownV2" });
+    await ctx.reply("Usage: /stats \\<creator\\_address\\>", { parse_mode: "MarkdownV2" });
     return;
   }
   
@@ -149,7 +149,7 @@ async function handleWatch(ctx: Context): Promise<void> {
   const parts = text.split(" ");
   
   if (parts.length < 2) {
-    await ctx.reply("Usage: /watch <creator\\_address>", { parse_mode: "MarkdownV2" });
+    await ctx.reply("Usage: /watch \\<creator\\_address\\>", { parse_mode: "MarkdownV2" });
     return;
   }
   
@@ -196,7 +196,7 @@ async function handleUnwatch(ctx: Context): Promise<void> {
   const parts = text.split(" ");
   
   if (parts.length < 2) {
-    await ctx.reply("Usage: /unwatch <creator\\_address>", { parse_mode: "MarkdownV2" });
+    await ctx.reply("Usage: /unwatch \\<creator\\_address\\>", { parse_mode: "MarkdownV2" });
     return;
   }
   
@@ -221,7 +221,7 @@ async function handleWatchlist(ctx: Context): Promise<void> {
   const watchlist = db.getUserWatchlist(userId);
   
   if (watchlist.length === 0) {
-    await ctx.reply("Your watchlist is empty\\.\n\nUse /watch <address> to add creators\\.", {
+    await ctx.reply("Your watchlist is empty\\.\n\nUse /watch \\<address\\> to add creators\\.", {
       parse_mode: "MarkdownV2",
     });
     return;
@@ -335,14 +335,24 @@ async function handleCallback(ctx: Context): Promise<void> {
         
       case "help":
         if (value === "show") {
-          await handleHelp(ctx);
+          try {
+            await ctx.editMessageText(`🔺 *Apex Commands*\n\n/start \\- Welcome & quick setup\n/stats \\<address\\> \\- Creator statistics\n/watch \\<address\\> \\- Add to watchlist\n/unwatch \\<address\\> \\- Remove from watchlist\n/watchlist \\- View watched creators\n/settings \\- Configure thresholds\n/recent \\- Recent alerts\n\n*How Apex Works:*\nApex tracks PumpFun creators who have proven success \\(bonded tokens or 100k\\+ MC\\)\\. When they launch again, you get instant alerts\\.\n\n*Tips:*\n• Lower thresholds \\= more alerts\n• Use watchlist for high\\-conviction creators\n• Check /stats before watching`, {
+              parse_mode: "MarkdownV2",
+              reply_markup: getHelpKeyboard(),
+            });
+          } catch { await handleHelp(ctx); }
         }
         await ctx.answerCallbackQuery();
         break;
-        
+
       case "start":
         if (value === "show") {
-          await handleStart(ctx);
+          try {
+            await ctx.editMessageText(`🔺 *Welcome to Apex*\n\nYour edge in tracking successful PumpFun creators\\.\n\nApex monitors new token launches and alerts you when proven creators deploy new tokens\\.\n\n*Quick Start:*\n1\\. Configure your thresholds with /settings\n2\\. Watch specific creators with /watch \\<address\\>\n3\\. Check any creator with /stats \\<address\\>`, {
+              parse_mode: "MarkdownV2",
+              reply_markup: getStartKeyboard(),
+            });
+          } catch { await handleStart(ctx); }
         }
         await ctx.answerCallbackQuery();
         break;
