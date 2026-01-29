@@ -4,6 +4,7 @@ import { logger } from "../utils/logger";
 import { formatAddress, formatMarketCap, formatPercentage, getPumpFunUrl, getDexScreenerUrl, escapeMarkdown } from "../utils/helpers";
 import type { Creator, Token, User } from "@shared/schema";
 import { checkQualification, getCreatorTier } from "./creatorService";
+import { checkIfSpamLauncher } from "./spamDetection";
 
 let botInstance: Bot | null = null;
 
@@ -14,6 +15,18 @@ export function setBotInstance(bot: Bot): void {
 export async function sendNewTokenAlert(creator: Creator, token: Token): Promise<void> {
   if (!botInstance) {
     logger.error("Bot instance not set for alerts");
+    return;
+  }
+  
+  const spamCheck = await checkIfSpamLauncher(
+    creator.address,
+    creator.bonded_count,
+    creator.hits_100k_count,
+    creator.total_launches
+  );
+  
+  if (spamCheck.isSpam) {
+    logger.info(`Skipping alert for spam launcher ${creator.address}: ${spamCheck.reason}`);
     return;
   }
   
