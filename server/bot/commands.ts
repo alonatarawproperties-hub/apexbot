@@ -335,14 +335,22 @@ async function handleCallback(ctx: Context): Promise<void> {
         
       case "help":
         if (value === "show") {
-          await handleHelp(ctx);
+          const helpMsg = `🔺 *Apex Commands*\n\n/start \\- Welcome & quick setup\n/stats <address> \\- Creator statistics\n/watch <address> \\- Add to watchlist\n/unwatch <address> \\- Remove from watchlist\n/watchlist \\- View watched creators\n/settings \\- Configure thresholds\n/recent \\- Recent alerts\n\n*How Apex Works:*\nApex tracks PumpFun creators who have proven success \\(bonded tokens or 100k\\+ MC\\)\\. When they launch again, you get instant alerts\\.\n\n*Tips:*\n• Lower thresholds \\= more alerts\n• Use watchlist for high\\-conviction creators\n• Check /stats before watching`;
+          await ctx.editMessageText(helpMsg, {
+            parse_mode: "MarkdownV2",
+            reply_markup: getHelpKeyboard(),
+          });
         }
         await ctx.answerCallbackQuery();
         break;
-        
+
       case "start":
         if (value === "show") {
-          await handleStart(ctx);
+          const startMsg = `🔺 *Welcome to Apex*\n\nYour edge in tracking successful PumpFun creators\\.\n\nApex monitors new token launches and alerts you when proven creators deploy new tokens\\.\n\n*Quick Start:*\n1\\. Configure your thresholds with /settings\n2\\. Watch specific creators with /watch <address>\n3\\. Check any creator with /stats <address>`;
+          await ctx.editMessageText(startMsg, {
+            parse_mode: "MarkdownV2",
+            reply_markup: getStartKeyboard(),
+          });
         }
         await ctx.answerCallbackQuery();
         break;
