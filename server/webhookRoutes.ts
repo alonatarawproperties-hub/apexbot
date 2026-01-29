@@ -28,18 +28,8 @@ router.post("/webhook/helius", async (req: Request, res: Response) => {
     lastWebhookReceived = new Date().toISOString();
     webhookCount++;
     
-    const body = req.body;
-    if (!body || (typeof body !== "object")) {
-      return res.status(400).json({ error: "Invalid payload" });
-    }
-
-    const transactions = Array.isArray(body) ? body : [body];
-
-    if (transactions.length > 100) {
-      logger.warn(`Webhook payload too large: ${transactions.length} transactions`);
-      return res.status(400).json({ error: "Payload too large" });
-    }
-
+    const transactions = Array.isArray(req.body) ? req.body : [req.body];
+    
     logger.info(`Webhook received: ${transactions.length} transactions`);
     
     for (const tx of transactions) {

@@ -105,10 +105,9 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
         });
       }
       
-      const effectivePeakMc = Math.max(info.marketCap, token.peak_mc);
       if (info.isBonded) bondedCount++;
-      if (effectivePeakMc >= 100000) hits100kCount++;
-      if (effectivePeakMc > bestMcEver) bestMcEver = effectivePeakMc;
+      if (info.marketCap >= 100000) hits100kCount++;
+      if (info.marketCap > bestMcEver) bestMcEver = info.marketCap;
     } else {
       if (token.bonded === 1) bondedCount++;
       if (token.peak_mc >= 100000) hits100kCount++;
