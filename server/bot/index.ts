@@ -19,6 +19,8 @@ export async function startBot(): Promise<Bot | null> {
     return null;
   }
 
+  logger.info("Bot polling enabled - starting bot...");
+
   try {
     bot = new Bot(config.telegramBotToken);
 
