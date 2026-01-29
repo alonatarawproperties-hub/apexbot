@@ -2,6 +2,12 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { initDatabase } from "./db";
+import { startBot } from "./bot";
+import { setupWebhook } from "./services/heliusService";
+import { startMcTracker } from "./jobs/mcTracker";
+import { startStatsAggregator } from "./jobs/statsAggregator";
+import { logger } from "./utils/logger";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +66,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  try {
+    initDatabase();
+    logger.info("Database initialized");
+  } catch (error: any) {
+    logger.error("Failed to initialize database", error.message);
+  }
+  
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -75,9 +88,6 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -85,10 +95,6 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
@@ -96,8 +102,31 @@ app.use((req, res, next) => {
       host: "0.0.0.0",
       reusePort: true,
     },
-    () => {
+    async () => {
       log(`serving on port ${port}`);
+      
+      try {
+        await startBot();
+        logger.info("Telegram bot started");
+      } catch (error: any) {
+        logger.error("Failed to start Telegram bot", error.message);
+      }
+      
+      const replitDomain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0];
+      if (replitDomain) {
+        const webhookUrl = `https://${replitDomain}/webhook/helius`;
+        try {
+          await setupWebhook(webhookUrl);
+          logger.info(`Helius webhook configured: ${webhookUrl}`);
+        } catch (error: any) {
+          logger.error("Failed to setup Helius webhook", error.message);
+        }
+      }
+      
+      startMcTracker();
+      startStatsAggregator();
+      
+      logger.info("🔺 Apex is online and tracking");
     },
   );
 })();

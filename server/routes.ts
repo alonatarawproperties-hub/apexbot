@@ -1,16 +1,79 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { type Server } from "http";
+import * as db from "./db";
+import webhookRoutes, { getLastWebhookReceived, getWebhookCount } from "./webhookRoutes";
+import { isBotRunning } from "./bot";
+import { getWebhooks } from "./services/heliusService";
+import type { BotStatus } from "@shared/schema";
+
+const startTime = Date.now();
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // put application routes here
-  // prefix all routes with /api
-
-  // use storage to perform CRUD operations on the storage interface
-  // e.g. storage.insertUser(user) or storage.getUserByUsername(username)
+  app.use(webhookRoutes);
+  
+  app.get("/api/status", async (req, res) => {
+    try {
+      const webhooks = await getWebhooks();
+      const webhookRegistered = webhooks.length > 0;
+      
+      const status: BotStatus = {
+        isOnline: isBotRunning(),
+        webhookRegistered,
+        totalUsers: db.getUserCount(),
+        totalCreators: db.getCreatorCount(),
+        totalTokens: db.getTokenCount(),
+        qualifiedCreators: db.getQualifiedCreatorCount(),
+        alertsSentToday: db.getAlertsSentToday(),
+        lastWebhookReceived: getLastWebhookReceived(),
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+      };
+      
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  app.get("/api/creators", (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const creators = db.getAllCreators().slice(0, limit);
+      res.json(creators);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  app.get("/api/creators/qualified", (req, res) => {
+    try {
+      const creators = db.getQualifiedCreators();
+      res.json(creators);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  app.get("/api/tokens/recent", (req, res) => {
+    try {
+      const hours = parseInt(req.query.hours as string) || 24;
+      const tokens = db.getRecentTokens(hours);
+      res.json(tokens);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  app.get("/api/alerts/today", (req, res) => {
+    try {
+      const count = db.getAlertsSentToday();
+      res.json({ count });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   return httpServer;
 }

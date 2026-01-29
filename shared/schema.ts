@@ -1,18 +1,144 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+// User settings schema
+export const userSettingsSchema = z.object({
+  min_bonded_count: z.number().default(1),
+  min_100k_count: z.number().default(1),
+  mc_hold_minutes: z.number().default(5),
+  lookback_days: z.number().default(90),
+  alert_watched_only: z.boolean().default(false),
+  notifications_enabled: z.boolean().default(true),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export type UserSettings = z.infer<typeof userSettingsSchema>;
+
+// User schema
+export const userSchema = z.object({
+  telegram_id: z.string(),
+  username: z.string().nullable(),
+  tier: z.string().default("free"),
+  settings: userSettingsSchema,
+  alerts_today: z.number().default(0),
+  last_alert_reset: z.string().nullable(),
+  created_at: z.string(),
 });
 
+export type User = z.infer<typeof userSchema>;
+
+export const insertUserSchema = userSchema.omit({ created_at: true });
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+
+// Creator schema
+export const creatorSchema = z.object({
+  address: z.string(),
+  total_launches: z.number().default(0),
+  bonded_count: z.number().default(0),
+  hits_100k_count: z.number().default(0),
+  best_mc_ever: z.number().default(0),
+  is_qualified: z.number().default(0),
+  qualification_reason: z.string().nullable(),
+  last_updated: z.string().nullable(),
+  first_seen: z.string(),
+});
+
+export type Creator = z.infer<typeof creatorSchema>;
+
+export const insertCreatorSchema = creatorSchema.omit({ first_seen: true });
+export type InsertCreator = z.infer<typeof insertCreatorSchema>;
+
+// Token schema
+export const tokenSchema = z.object({
+  address: z.string(),
+  creator_address: z.string(),
+  name: z.string().nullable(),
+  symbol: z.string().nullable(),
+  bonded: z.number().default(0),
+  peak_mc: z.number().default(0),
+  peak_mc_timestamp: z.string().nullable(),
+  peak_mc_held_minutes: z.number().default(0),
+  current_mc: z.number().default(0),
+  created_at: z.string(),
+  pumpfun_url: z.string().nullable(),
+});
+
+export type Token = z.infer<typeof tokenSchema>;
+
+export const insertTokenSchema = tokenSchema.omit({ created_at: true });
+export type InsertToken = z.infer<typeof insertTokenSchema>;
+
+// Watchlist schema
+export const watchlistSchema = z.object({
+  id: z.number(),
+  user_id: z.string(),
+  creator_address: z.string(),
+  notes: z.string().nullable(),
+  added_at: z.string(),
+});
+
+export type WatchlistEntry = z.infer<typeof watchlistSchema>;
+
+export const insertWatchlistSchema = watchlistSchema.omit({ id: true, added_at: true });
+export type InsertWatchlistEntry = z.infer<typeof insertWatchlistSchema>;
+
+// Alert log schema
+export const alertLogSchema = z.object({
+  id: z.number(),
+  user_id: z.string(),
+  creator_address: z.string(),
+  token_address: z.string(),
+  alert_type: z.string(),
+  delivered: z.number().default(0),
+  sent_at: z.string(),
+});
+
+export type AlertLog = z.infer<typeof alertLogSchema>;
+
+export const insertAlertLogSchema = alertLogSchema.omit({ id: true, sent_at: true });
+export type InsertAlertLog = z.infer<typeof insertAlertLogSchema>;
+
+// Bot status for dashboard
+export const botStatusSchema = z.object({
+  isOnline: z.boolean(),
+  webhookRegistered: z.boolean(),
+  totalUsers: z.number(),
+  totalCreators: z.number(),
+  totalTokens: z.number(),
+  qualifiedCreators: z.number(),
+  alertsSentToday: z.number(),
+  lastWebhookReceived: z.string().nullable(),
+  uptime: z.number(),
+});
+
+export type BotStatus = z.infer<typeof botStatusSchema>;
+
+// Creator stats for display
+export const creatorStatsSchema = z.object({
+  address: z.string(),
+  total_launches: z.number(),
+  bonded_count: z.number(),
+  bonded_rate: z.number(),
+  hits_100k_count: z.number(),
+  hits_100k_rate: z.number(),
+  best_mc_ever: z.number(),
+  is_qualified: z.boolean(),
+  qualification_reason: z.string().nullable(),
+  recent_tokens: z.array(tokenSchema).optional(),
+});
+
+export type CreatorStats = z.infer<typeof creatorStatsSchema>;
+
+// Webhook payload from Helius
+export const heliusWebhookPayloadSchema = z.array(z.object({
+  type: z.string(),
+  signature: z.string(),
+  slot: z.number(),
+  timestamp: z.number(),
+  feePayer: z.string().optional(),
+  nativeTransfers: z.array(z.any()).optional(),
+  tokenTransfers: z.array(z.any()).optional(),
+  accountData: z.array(z.any()).optional(),
+  instructions: z.array(z.any()).optional(),
+  events: z.any().optional(),
+}));
+
+export type HeliusWebhookPayload = z.infer<typeof heliusWebhookPayloadSchema>;
