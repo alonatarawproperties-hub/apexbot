@@ -37,27 +37,14 @@ export async function registerRoutes(
       app.post("/telegram/webhook", webhookCallback(telegramBot, "express"));
       logger.info("Telegram webhook route registered at /telegram/webhook");
       
-      // Set the webhook URL - only for production (.replit.app domain)
-      const domains = process.env.REPLIT_DOMAINS?.split(",") || [];
-      const productionDomain = domains.find(d => d.endsWith('.replit.app'));
-      
-      if (productionDomain) {
-        const webhookUrl = `https://${productionDomain}/telegram/webhook`;
-        await telegramBot.api.setWebhook(webhookUrl, {
-          drop_pending_updates: true,
-          allowed_updates: ["message", "callback_query"],
-        });
-        logger.info(`Telegram webhook set to: ${webhookUrl}`);
-      } else {
-        // Development mode - use polling
-        logger.info("Development mode - using polling");
-        await telegramBot.api.deleteWebhook({ drop_pending_updates: true });
-        telegramBot.start({
-          onStart: () => logger.info("Telegram bot polling started"),
-        }).catch((err) => {
-          logger.warn("Bot polling issue", err.message);
-        });
-      }
+      // Always use polling mode - more reliable for Replit
+      logger.info("Using polling mode for bot");
+      await telegramBot.api.deleteWebhook({ drop_pending_updates: true });
+      telegramBot.start({
+        onStart: () => logger.info("Telegram bot polling started"),
+      }).catch((err) => {
+        logger.warn("Bot polling issue", err.message);
+      });
     } catch (err: any) {
       logger.error("Failed to setup Telegram bot", err.message);
     }
