@@ -11,7 +11,7 @@ export async function processNewToken(
   tokenSymbol?: string
 ): Promise<{ creator: Creator; token: Token; isQualified: boolean; watcherUserIds: string[] }> {
   let creator = db.getCreator(creatorAddress);
-  
+
   if (!creator) {
     creator = db.upsertCreator({
       address: creatorAddress,
@@ -30,7 +30,7 @@ export async function processNewToken(
       last_updated: getCurrentTimestamp(),
     });
   }
-  
+
   let token = db.getToken(tokenAddress);
   if (!token) {
     token = db.createToken({
@@ -46,7 +46,7 @@ export async function processNewToken(
       pumpfun_url: getPumpFunUrl(tokenAddress),
     });
   }
-  
+
   const tokenInfo = await getTokenInfo(tokenAddress);
   if (tokenInfo) {
     db.updateToken(tokenAddress, {
@@ -59,12 +59,12 @@ export async function processNewToken(
     });
     token = db.getToken(tokenAddress)!;
   }
-  
+
   await recalculateCreatorStats(creatorAddress);
   creator = db.getCreator(creatorAddress)!;
-  
+
   const watcherUserIds = db.getWatchersForCreator(creatorAddress);
-  
+
   return {
     creator,
     token,
@@ -89,22 +89,23 @@ export function getCreatorTier(bondedCount: number, hits100kCount: number, total
   return "none";
 }
 
+export async function recalculateCreatorStats(creatorAddress: string): Promise<void> {
   const tokens = db.getTokensByCreator(creatorAddress);
-  
+
   if (tokens.length === 0) {
     return;
   }
-  
+
   const tokenAddresses = tokens.map(t => t.address);
   const tokenInfoMap = await getTokensByAddresses(tokenAddresses);
-  
+
   let bondedCount = 0;
   let hits100kCount = 0;
   let bestMcEver = 0;
-  
+
   for (const token of tokens) {
     const info = tokenInfoMap.get(token.address);
-    
+
     if (info) {
       db.updateToken(token.address, {
         current_mc: info.marketCap,
@@ -112,14 +113,14 @@ export function getCreatorTier(bondedCount: number, hits100kCount: number, total
         name: info.name,
         symbol: info.symbol,
       });
-      
+
       if (info.marketCap > token.peak_mc) {
         db.updateToken(token.address, {
           peak_mc: info.marketCap,
           peak_mc_timestamp: getCurrentTimestamp(),
         });
       }
-      
+
       const effectivePeakMc = Math.max(info.marketCap, token.peak_mc);
       if (info.isBonded) bondedCount++;
       if (effectivePeakMc >= 100000) hits100kCount++;
@@ -130,7 +131,7 @@ export function getCreatorTier(bondedCount: number, hits100kCount: number, total
       if (token.peak_mc > bestMcEver) bestMcEver = token.peak_mc;
     }
   }
-  
+
   const totalLaunches = tokens.length;
   const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
 
@@ -149,7 +150,7 @@ export function getCreatorTier(bondedCount: number, hits100kCount: number, total
     if (bondedCount >= 2) reasons.push(`${bondedCount} bonded tokens`);
     qualificationReason = `PROVEN: ${reasons.join(", ")}`;
   }
-  
+
   db.upsertCreator({
     address: creatorAddress,
     total_launches: tokens.length,
@@ -182,10 +183,10 @@ export function checkQualification(creator: Creator, settings: UserSettings): bo
 export function getCreatorStats(creatorAddress: string): CreatorStats | null {
   const creator = db.getCreator(creatorAddress);
   if (!creator) return null;
-  
+
   const tokens = db.getTokensByCreator(creatorAddress);
   const recentTokens = tokens.slice(0, 5);
-  
+
   return {
     address: creator.address,
     total_launches: creator.total_launches,
@@ -202,7 +203,7 @@ export function getCreatorStats(creatorAddress: string): CreatorStats | null {
 
 export async function ensureCreatorExists(creatorAddress: string): Promise<Creator> {
   let creator = db.getCreator(creatorAddress);
-  
+
   if (!creator) {
     creator = db.upsertCreator({
       address: creatorAddress,
@@ -215,6 +216,6 @@ export async function ensureCreatorExists(creatorAddress: string): Promise<Creat
       last_updated: getCurrentTimestamp(),
     });
   }
-  
+
   return creator;
 }

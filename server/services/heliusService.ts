@@ -96,7 +96,21 @@ export async function setupWebhook(webhookUrl: string): Promise<string | null> {
     
     for (const webhook of existingWebhooks.data) {
       if (webhook.webhookURL === webhookUrl) {
-        logger.info("Webhook already exists", webhook.webhookID);
+        if (config.webhookSecret) {
+          await axios.put(
+            `${HELIUS_API_BASE}/webhooks/${webhook.webhookID}?api-key=${config.heliusApiKey}`,
+            {
+              webhookURL: webhookUrl,
+              transactionTypes: ["Any"],
+              accountAddresses: [config.pumpfunProgram],
+              webhookType: "enhanced",
+              authHeader: `Bearer ${config.webhookSecret}`,
+            }
+          );
+          logger.info("Webhook updated with auth header", webhook.webhookID);
+        } else {
+          logger.info("Webhook already exists", webhook.webhookID);
+        }
         return webhook.webhookID;
       }
     }
