@@ -129,16 +129,6 @@ export function getAllUsers(): User[] {
   }));
 }
 
-export function getEnabledUsers(): User[] {
-  const rows = db.prepare(
-    "SELECT * FROM users WHERE json_extract(settings, '$.notifications_enabled') = 1"
-  ).all() as any[];
-  return rows.map(row => ({
-    ...row,
-    settings: JSON.parse(row.settings),
-  }));
-}
-
 export function getUserCount(): number {
   const row = db.prepare("SELECT COUNT(*) as count FROM users").get() as any;
   return row.count;
@@ -214,8 +204,6 @@ export function updateToken(address: string, updates: Partial<Token>): void {
   const fields: string[] = [];
   const values: any[] = [];
 
-  if (updates.name !== undefined) { fields.push("name = ?"); values.push(updates.name); }
-  if (updates.symbol !== undefined) { fields.push("symbol = ?"); values.push(updates.symbol); }
   if (updates.bonded !== undefined) { fields.push("bonded = ?"); values.push(updates.bonded); }
   if (updates.peak_mc !== undefined) { fields.push("peak_mc = ?"); values.push(updates.peak_mc); }
   if (updates.peak_mc_timestamp !== undefined) { fields.push("peak_mc_timestamp = ?"); values.push(updates.peak_mc_timestamp); }
@@ -284,13 +272,6 @@ export function logAlert(alert: InsertAlertLog): void {
     INSERT INTO alerts_log (user_id, creator_address, token_address, alert_type, delivered)
     VALUES (?, ?, ?, ?, ?)
   `).run(alert.user_id, alert.creator_address, alert.token_address, alert.alert_type, alert.delivered);
-}
-
-export function hasAlertBeenSent(userId: string, tokenAddress: string): boolean {
-  const row = db.prepare(
-    "SELECT 1 FROM alerts_log WHERE user_id = ? AND token_address = ? AND delivered = 1"
-  ).get(userId, tokenAddress);
-  return !!row;
 }
 
 export function getRecentAlerts(userId: string, limit: number = 10): AlertLog[] {

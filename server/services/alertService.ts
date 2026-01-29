@@ -18,20 +18,13 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
   }
   
   const usersToAlert: Array<{ user: User; isWatched: boolean }> = [];
-  const allUsers = db.getEnabledUsers();
-
+  const allUsers = db.getAllUsers();
+  
   for (const user of allUsers) {
-    // Skip if we already sent an alert for this token to this user
-    if (db.hasAlertBeenSent(user.telegram_id, token.address)) continue;
-
-    // Reset daily alert counter if needed
-    const today = new Date().toISOString().split("T")[0];
-    if (user.last_alert_reset !== today) {
-      db.resetUserAlerts(user.telegram_id);
-    }
-
+    if (!user.settings.notifications_enabled) continue;
+    
     const isWatched = db.isOnWatchlist(user.telegram_id, creator.address);
-
+    
     if (user.settings.alert_watched_only) {
       if (isWatched) {
         usersToAlert.push({ user, isWatched: true });
@@ -49,7 +42,7 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
       const keyboard = getAlertKeyboard(creator.address, token.address);
       
       await botInstance.api.sendMessage(user.telegram_id, message, {
-        parse_mode: "MarkdownV2",
+        parse_mode: "Markdown",
         reply_markup: keyboard,
         link_preview_options: { is_disabled: true },
       });
