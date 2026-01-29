@@ -5,3 +5,5 @@ server/public
 vite.config.ts.*
 *.tar.gz*.db-shm
 *.db-wal
+data/*.db-shm
+data/*.db-wal
