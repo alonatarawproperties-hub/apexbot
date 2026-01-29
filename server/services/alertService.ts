@@ -3,7 +3,7 @@ import * as db from "../db";
 import { logger } from "../utils/logger";
 import { formatAddress, formatMarketCap, formatPercentage, getPumpFunUrl, getDexScreenerUrl, escapeMarkdown } from "../utils/helpers";
 import type { Creator, Token, User } from "@shared/schema";
-import { checkQualification } from "./creatorService";
+import { checkQualification, getCreatorTier } from "./creatorService";
 
 let botInstance: Bot | null = null;
 
@@ -99,7 +99,12 @@ function formatAlertMessage(creator: Creator, token: Token, isWatched: boolean):
 🔗 [PumpFun](${getPumpFunUrl(token.address)}) • [DexScreener](${getDexScreenerUrl(token.address)})`;
   }
   
-  return `🔺 *APEX ALERT*
+  const tier = getCreatorTier(creator.bonded_count, creator.hits_100k_count, creator.total_launches, creator.best_mc_ever);
+  const tierLabel = tier === "elite"
+    ? `🔥 *APEX \\- ELITE CREATOR* 🔥`
+    : `🔺 *APEX \\- PROVEN CREATOR*`;
+
+  return `${tierLabel}
 
 *Token:* $${escapeMarkdown(tokenSymbol)} (${escapeMarkdown(tokenName)})
 \`${token.address}\`

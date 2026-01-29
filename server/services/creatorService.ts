@@ -1,7 +1,7 @@
 import * as db from "../db";
 import { getTokenInfo, getTokensByAddresses } from "./dexscreener";
 import { logger } from "../utils/logger";
-import { getCurrentTimestamp, getPumpFunUrl } from "../utils/helpers";
+import { getCurrentTimestamp, getPumpFunUrl, formatMarketCap } from "../utils/helpers";
 import type { Creator, Token, UserSettings, CreatorStats } from "@shared/schema";
 
 export async function processNewToken(
@@ -11,7 +11,7 @@ export async function processNewToken(
   tokenSymbol?: string
 ): Promise<{ creator: Creator; token: Token; isQualified: boolean; watcherUserIds: string[] }> {
   let creator = db.getCreator(creatorAddress);
-  
+
   if (!creator) {
     creator = db.upsertCreator({
       address: creatorAddress,
@@ -30,7 +30,7 @@ export async function processNewToken(
       last_updated: getCurrentTimestamp(),
     });
   }
-  
+
   let token = db.getToken(tokenAddress);
   if (!token) {
     token = db.createToken({
@@ -46,7 +46,7 @@ export async function processNewToken(
       pumpfun_url: getPumpFunUrl(tokenAddress),
     });
   }
-  
+
   const tokenInfo = await getTokenInfo(tokenAddress);
   if (tokenInfo) {
     db.updateToken(tokenAddress, {
@@ -59,12 +59,12 @@ export async function processNewToken(
     });
     token = db.getToken(tokenAddress)!;
   }
-  
+
   await recalculateCreatorStats(creatorAddress);
   creator = db.getCreator(creatorAddress)!;
-  
+
   const watcherUserIds = db.getWatchersForCreator(creatorAddress);
-  
+
   return {
     creator,
     token,
@@ -73,23 +73,39 @@ export async function processNewToken(
   };
 }
 
+export type CreatorTier = "elite" | "proven" | "none";
+
+export function getCreatorTier(bondedCount: number, hits100kCount: number, totalLaunches: number, bestMcEver: number): CreatorTier {
+  const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
+
+  // Elite: 500k+ MC hit OR 3+ bonded with 50%+ rate
+  if (bestMcEver >= 500000) return "elite";
+  if (bondedCount >= 3 && bondingRate >= 0.5) return "elite";
+
+  // Proven: 1+ token hit 100k+ OR 2+ bonded tokens
+  if (hits100kCount >= 1) return "proven";
+  if (bondedCount >= 2) return "proven";
+
+  return "none";
+}
+
 export async function recalculateCreatorStats(creatorAddress: string): Promise<void> {
   const tokens = db.getTokensByCreator(creatorAddress);
-  
+
   if (tokens.length === 0) {
     return;
   }
-  
+
   const tokenAddresses = tokens.map(t => t.address);
   const tokenInfoMap = await getTokensByAddresses(tokenAddresses);
-  
+
   let bondedCount = 0;
   let hits100kCount = 0;
   let bestMcEver = 0;
-  
+
   for (const token of tokens) {
     const info = tokenInfoMap.get(token.address);
-    
+
     if (info) {
       db.updateToken(token.address, {
         current_mc: info.marketCap,
@@ -97,44 +113,44 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
         name: info.name,
         symbol: info.symbol,
       });
-      
+
       if (info.marketCap > token.peak_mc) {
         db.updateToken(token.address, {
           peak_mc: info.marketCap,
           peak_mc_timestamp: getCurrentTimestamp(),
         });
       }
-      
+
+      const effectivePeakMc = Math.max(info.marketCap, token.peak_mc);
       if (info.isBonded) bondedCount++;
-      if (info.marketCap >= 100000) hits100kCount++;
-      if (info.marketCap > bestMcEver) bestMcEver = info.marketCap;
+      if (effectivePeakMc >= 100000) hits100kCount++;
+      if (effectivePeakMc > bestMcEver) bestMcEver = effectivePeakMc;
     } else {
       if (token.bonded === 1) bondedCount++;
       if (token.peak_mc >= 100000) hits100kCount++;
       if (token.peak_mc > bestMcEver) bestMcEver = token.peak_mc;
     }
   }
-  
+
   const totalLaunches = tokens.length;
   const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
 
-  // Qualification: creator must have at least 2 past launches AND meet one of:
-  // - High bonding rate (50%+ with at least 2 bonded)
-  // - At least 1 token that hit 100k+ market cap
-  const hasEnoughHistory = totalLaunches >= 2;
-  const hasHighBondingRate = bondedCount >= 2 && bondingRate >= 0.5;
-  const hasHit100k = hits100kCount >= 1;
-
-  const isQualified = hasEnoughHistory && (hasHighBondingRate || hasHit100k);
+  const tier = getCreatorTier(bondedCount, hits100kCount, totalLaunches, bestMcEver);
+  const isQualified = tier !== "none";
   let qualificationReason: string | null = null;
 
-  if (isQualified) {
+  if (tier === "elite") {
     const reasons: string[] = [];
-    if (hasHighBondingRate) reasons.push(`${(bondingRate * 100).toFixed(0)}% bonding rate (${bondedCount}/${totalLaunches})`);
-    if (hasHit100k) reasons.push(`${hits100kCount} hit 100k MC`);
-    qualificationReason = reasons.join(", ");
+    if (bestMcEver >= 500000) reasons.push(`best MC ${formatMarketCap(bestMcEver)}`);
+    if (bondedCount >= 3 && bondingRate >= 0.5) reasons.push(`${(bondingRate * 100).toFixed(0)}% bonding rate (${bondedCount}/${totalLaunches})`);
+    qualificationReason = `ELITE: ${reasons.join(", ")}`;
+  } else if (tier === "proven") {
+    const reasons: string[] = [];
+    if (hits100kCount >= 1) reasons.push(`${hits100kCount} hit 100k MC`);
+    if (bondedCount >= 2) reasons.push(`${bondedCount} bonded tokens`);
+    qualificationReason = `PROVEN: ${reasons.join(", ")}`;
   }
-  
+
   db.upsertCreator({
     address: creatorAddress,
     total_launches: tokens.length,
@@ -148,27 +164,29 @@ export async function recalculateCreatorStats(creatorAddress: string): Promise<v
 }
 
 export function checkQualification(creator: Creator, settings: UserSettings): boolean {
-  // Must have at least 2 launches to have meaningful stats
-  if (creator.total_launches < 2) return false;
-
-  const bondingRate = creator.total_launches > 0
-    ? creator.bonded_count / creator.total_launches
-    : 0;
-
-  // Check bonding: need at least min_bonded_count bonded AND 50%+ rate
-  if (creator.bonded_count >= settings.min_bonded_count && bondingRate >= 0.5) return true;
-  // Check 100k hits
-  if (creator.hits_100k_count >= settings.min_100k_count) return true;
+  const tier = getCreatorTier(
+    creator.bonded_count,
+    creator.hits_100k_count,
+    creator.total_launches,
+    creator.best_mc_ever,
+  );
+  // Elite always qualifies
+  if (tier === "elite") return true;
+  // Proven qualifies if it meets user's custom thresholds
+  if (tier === "proven") {
+    if (creator.bonded_count >= settings.min_bonded_count) return true;
+    if (creator.hits_100k_count >= settings.min_100k_count) return true;
+  }
   return false;
 }
 
 export function getCreatorStats(creatorAddress: string): CreatorStats | null {
   const creator = db.getCreator(creatorAddress);
   if (!creator) return null;
-  
+
   const tokens = db.getTokensByCreator(creatorAddress);
   const recentTokens = tokens.slice(0, 5);
-  
+
   return {
     address: creator.address,
     total_launches: creator.total_launches,
@@ -185,7 +203,7 @@ export function getCreatorStats(creatorAddress: string): CreatorStats | null {
 
 export async function ensureCreatorExists(creatorAddress: string): Promise<Creator> {
   let creator = db.getCreator(creatorAddress);
-  
+
   if (!creator) {
     creator = db.upsertCreator({
       address: creatorAddress,
@@ -198,6 +216,6 @@ export async function ensureCreatorExists(creatorAddress: string): Promise<Creat
       last_updated: getCurrentTimestamp(),
     });
   }
-  
+
   return creator;
 }
