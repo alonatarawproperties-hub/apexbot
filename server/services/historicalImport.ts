@@ -75,13 +75,20 @@ export async function importHistoricalCreators(maxTokens: number = 1000): Promis
     const batchSize = Math.min(100, maxTokens - totalFetched);
     const { tokens, nextCursor } = await fetchGraduatedTokens(batchSize, cursor);
     
+    logger.info(`[IMPORT] Batch fetched: ${tokens.length} tokens, nextCursor: ${nextCursor ? 'yes' : 'no'}`);
+    
     if (tokens.length === 0) break;
     
+    let tokensWithCreator = 0;
     for (const token of tokens) {
-      if (token.creatorAddress && !creatorSet.has(token.creatorAddress)) {
-        creatorSet.add(token.creatorAddress);
+      if (token.creatorAddress) {
+        tokensWithCreator++;
+        if (!creatorSet.has(token.creatorAddress)) {
+          creatorSet.add(token.creatorAddress);
+        }
       }
     }
+    logger.info(`[IMPORT] Tokens with creatorAddress: ${tokensWithCreator}/${tokens.length}`);
     
     totalFetched += tokens.length;
     cursor = nextCursor;
