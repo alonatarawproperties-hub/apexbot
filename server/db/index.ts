@@ -186,6 +186,13 @@ export function getQualifiedCreators(): Creator[] {
   return db.prepare("SELECT * FROM creators WHERE is_qualified = 1").all() as Creator[];
 }
 
+export function updateCreatorTotalLaunches(address: string, totalLaunches: number): void {
+  db.prepare(`
+    UPDATE creators SET total_launches = ?, last_updated = ?
+    WHERE address = ?
+  `).run(totalLaunches, getCurrentTimestamp(), address);
+}
+
 export function getCreatorCount(): number {
   const row = db.prepare("SELECT COUNT(*) as count FROM creators").get() as any;
   return row.count;

@@ -5,11 +5,30 @@ import { formatAddress, formatMarketCap, formatPercentage, getPumpFunUrl, getDex
 import type { Creator, Token, User } from "@shared/schema";
 import { checkQualification, getCreatorTier } from "./creatorService";
 import { checkIfSpamLauncher } from "./spamDetection";
+import { fetchCreatorTokenHistory } from "./bitqueryService";
 
 let botInstance: Bot | null = null;
 
 export function setBotInstance(bot: Bot): void {
   botInstance = bot;
+}
+
+function needsHistoryRefresh(creator: Creator): boolean {
+  const successCount = creator.bonded_count + creator.hits_100k_count;
+  
+  if (successCount >= 3) {
+    return false;
+  }
+  
+  if (creator.total_launches <= 10) {
+    return true;
+  }
+  
+  if (successCount > 0 && successCount <= 2) {
+    return true;
+  }
+  
+  return false;
 }
 
 export async function sendNewTokenAlert(creator: Creator, token: Token): Promise<void> {
@@ -18,11 +37,35 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
     return;
   }
   
+  let actualTotalLaunches = creator.total_launches;
+  
+  const shouldRefresh = needsHistoryRefresh(creator);
+  
+  if (shouldRefresh) {
+    logger.info(`Refreshing history for creator ${creator.address.slice(0, 8)}... (DB shows ${creator.total_launches} launches)`);
+    
+    try {
+      const { tokens: historyTokens, totalCount } = await fetchCreatorTokenHistory(creator.address, 1000);
+      
+      if (totalCount > 0) {
+        actualTotalLaunches = totalCount;
+        
+        if (totalCount > creator.total_launches) {
+          logger.info(`Bitquery: Creator has ${totalCount} actual launches (DB had ${creator.total_launches})`);
+          
+          db.updateCreatorTotalLaunches(creator.address, totalCount);
+        }
+      }
+    } catch (error: any) {
+      logger.warn(`Failed to refresh history: ${error.message}`);
+    }
+  }
+  
   const spamCheck = await checkIfSpamLauncher(
     creator.address,
     creator.bonded_count,
     creator.hits_100k_count,
-    creator.total_launches
+    actualTotalLaunches
   );
   
   if (spamCheck.isSpam) {
