@@ -27,6 +27,25 @@ export async function startBot(): Promise<Bot | null> {
     registerCommands(bot);
     setBotInstance(bot);
 
+    // Set up the Menu button with bot commands
+    await bot.api.setMyCommands([
+      { command: "start", description: "Welcome & quick setup" },
+      { command: "settings", description: "Configure alert thresholds" },
+      { command: "sniper", description: "Sniper bot settings" },
+      { command: "watchlist", description: "View watched creators" },
+      { command: "watch", description: "Add creator to watchlist" },
+      { command: "stats", description: "Check creator statistics" },
+      { command: "recent", description: "Recent alerts" },
+      { command: "help", description: "Tips and commands" },
+    ]);
+    
+    // Set the menu button to show commands
+    await bot.api.setChatMenuButton({
+      menu_button: { type: "commands" }
+    });
+    
+    logger.info("Bot menu commands set up");
+
     bot.catch((err) => {
       logger.error("Bot error", err);
     });
