@@ -780,7 +780,7 @@ async function handleBundleSettingChange(
 ): Promise<void> {
   const userId = ctx.from!.id.toString();
   const settings = { ...user.settings };
-  const defaultValue = field === "bundle_buy_amount_sol" ? 0.1 : (field === "bundle_max_sol" ? 200 : 40);
+  const defaultValue = field === "bundle_buy_amount_sol" ? 0.1 : (field === "bundle_max_sol" ? 200 : 2);
   const current = settings[field] ?? defaultValue;
   
   let newValue: number;
@@ -795,7 +795,7 @@ async function handleBundleSettingChange(
     if (direction === "inc") {
       newValue = current + 10;
     } else {
-      newValue = Math.max(10, current - 10);
+      newValue = Math.max(2, current - 10);
     }
   }
   
