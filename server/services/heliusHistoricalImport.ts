@@ -4,21 +4,7 @@ import { getCreatorLaunchCount } from "./creatorLaunchCounter";
 import { checkIfSpamLauncher } from "./spamDetection";
 
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
-const PUMPFUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
-
-interface HeliusTransaction {
-  signature: string;
-  type: string;
-  source: string;
-  fee: number;
-  feePayer: string;
-  slot: number;
-  timestamp: number;
-  tokenTransfers?: any[];
-  nativeTransfers?: any[];
-  accountData?: any[];
-  description?: string;
-}
+const MORALIS_API_KEY = process.env.MORALIS_API_KEY;
 
 interface ImportProgress {
   isRunning: boolean;
@@ -48,95 +34,59 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchPumpFunTransactions(beforeSignature?: string): Promise<HeliusTransaction[]> {
-  if (!HELIUS_API_KEY) {
-    throw new Error("HELIUS_API_KEY not set");
+async function fetchGraduatedTokensFromMoralis(cursor?: string): Promise<{ tokens: string[]; nextCursor?: string }> {
+  if (!MORALIS_API_KEY) {
+    throw new Error("MORALIS_API_KEY not set");
   }
 
-  const url = `https://api.helius.xyz/v0/addresses/${PUMPFUN_PROGRAM_ID}/transactions?api-key=${HELIUS_API_KEY}&limit=100${beforeSignature ? `&before=${beforeSignature}` : ''}`;
-
-  const response = await fetch(url);
+  const url = `https://solana-gateway.moralis.io/token/mainnet/exchange/pumpfun/graduated?limit=100${cursor ? `&cursor=${cursor}` : ''}`;
   
+  const response = await fetch(url, {
+    headers: {
+      "Accept": "application/json",
+      "X-API-Key": MORALIS_API_KEY
+    }
+  });
+
   if (!response.ok) {
-    if (response.status === 429) {
-      logger.warn("Helius rate limited, waiting...");
-      await sleep(2000);
-      return fetchPumpFunTransactions(beforeSignature);
-    }
-    throw new Error(`Helius API error: ${response.status}`);
+    throw new Error(`Moralis API error: ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  const tokens = (data.result || []).map((t: any) => t.tokenAddress);
+  
+  return { tokens, nextCursor: data.cursor };
 }
 
-async function getTokenCreationDetails(signature: string): Promise<{ creator: string; tokenMint: string; name: string; symbol: string } | null> {
+async function getCreatorFromHelius(tokenMint: string): Promise<string | null> {
   if (!HELIUS_API_KEY) return null;
 
   try {
-    const url = `https://api.helius.xyz/v0/transactions/?api-key=${HELIUS_API_KEY}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transactions: [signature] })
-    });
-
-    if (!response.ok) return null;
-
-    const [tx] = await response.json();
-    if (!tx) return null;
-
-    if (tx.type === "CREATE" && tx.source === "PUMP_FUN") {
-      return {
-        creator: tx.feePayer,
-        tokenMint: tx.tokenTransfers?.[0]?.mint || "",
-        name: tx.description?.match(/created (\w+)/)?.[1] || "Unknown",
-        symbol: tx.description?.match(/\((\w+)\)/)?.[1] || "???",
-      };
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function fetchBondedTokensFromDexScreener(limit: number = 100): Promise<Array<{ tokenAddress: string; creator?: string }>> {
-  const tokens: Array<{ tokenAddress: string; creator?: string }> = [];
-  
-  try {
-    const response = await fetch(`https://api.dexscreener.com/latest/dex/search?q=pump`);
-    if (!response.ok) return tokens;
-    
-    const data = await response.json();
-    const pairs = data.pairs || [];
-    
-    for (const pair of pairs.slice(0, limit)) {
-      if (pair.baseToken?.address?.endsWith("pump")) {
-        tokens.push({ tokenAddress: pair.baseToken.address });
-      }
-    }
-  } catch (error: any) {
-    logger.error(`DexScreener fetch error: ${error.message}`);
-  }
-  
-  return tokens;
-}
-
-async function getCreatorFromToken(tokenMint: string): Promise<string | null> {
-  if (!HELIUS_API_KEY) return null;
-
-  try {
-    const url = `https://api.helius.xyz/v0/addresses/${tokenMint}/transactions?api-key=${HELIUS_API_KEY}&limit=1&type=CREATE`;
+    const url = `https://api.helius.xyz/v0/addresses/${tokenMint}/transactions?api-key=${HELIUS_API_KEY}&limit=50`;
     const response = await fetch(url);
     
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response.status === 429) {
+        await sleep(1000);
+        return getCreatorFromHelius(tokenMint);
+      }
+      return null;
+    }
     
     const txs = await response.json();
-    if (txs.length > 0) {
-      return txs[0].feePayer || null;
+    
+    for (const tx of txs) {
+      if (tx.type === "CREATE" || tx.source === "PUMP_FUN") {
+        return tx.feePayer || null;
+      }
     }
-  } catch {
-    return null;
+    
+    if (txs.length > 0) {
+      const lastTx = txs[txs.length - 1];
+      return lastTx.feePayer || null;
+    }
+  } catch (error: any) {
+    logger.error(`Helius lookup error for ${tokenMint.slice(0, 8)}: ${error.message}`);
   }
   
   return null;
@@ -153,6 +103,11 @@ export async function importFromHelius(maxCreators: number = 200): Promise<Impor
     return importProgress;
   }
 
+  if (!MORALIS_API_KEY) {
+    logger.error("MORALIS_API_KEY not set");
+    return importProgress;
+  }
+
   importProgress = {
     isRunning: true,
     totalFound: 0,
@@ -163,37 +118,53 @@ export async function importFromHelius(maxCreators: number = 200): Promise<Impor
     startTime: Date.now(),
   };
 
-  logger.info(`[HELIUS IMPORT] Starting historical import (max ${maxCreators} creators)...`);
+  logger.info(`[HELIUS IMPORT] Starting import (max ${maxCreators} creators)...`);
 
-  const creatorsFound = new Set<string>();
+  const creatorsFound = new Map<string, number>();
   
   try {
-    logger.info("[HELIUS IMPORT] Fetching bonded tokens from DexScreener...");
-    const bondedTokens = await fetchBondedTokensFromDexScreener(300);
-    logger.info(`[HELIUS IMPORT] Found ${bondedTokens.length} bonded tokens`);
-
-    for (const token of bondedTokens) {
-      if (creatorsFound.size >= maxCreators) break;
+    let cursor: string | undefined;
+    let totalTokens = 0;
+    const maxTokens = 500;
+    
+    while (totalTokens < maxTokens) {
+      logger.info(`[HELIUS IMPORT] Fetching graduated tokens from Moralis (page ${Math.floor(totalTokens / 100) + 1})...`);
       
-      try {
-        const creator = await getCreatorFromToken(token.tokenAddress);
-        if (creator && !creatorsFound.has(creator)) {
-          creatorsFound.add(creator);
-          importProgress.totalFound = creatorsFound.size;
+      const { tokens, nextCursor } = await fetchGraduatedTokensFromMoralis(cursor);
+      
+      if (tokens.length === 0) break;
+      
+      logger.info(`[HELIUS IMPORT] Got ${tokens.length} tokens, looking up creators via Helius...`);
+      
+      for (const tokenMint of tokens) {
+        if (creatorsFound.size >= maxCreators) break;
+        
+        try {
+          const creator = await getCreatorFromHelius(tokenMint);
           
-          if (creatorsFound.size % 20 === 0) {
-            logger.info(`[HELIUS IMPORT] Found ${creatorsFound.size} unique creators...`);
+          if (creator) {
+            creatorsFound.set(creator, (creatorsFound.get(creator) || 0) + 1);
+            importProgress.totalFound = creatorsFound.size;
           }
+          
+          await sleep(100);
+        } catch (error: any) {
+          importProgress.errors++;
         }
-        await sleep(100);
-      } catch (error: any) {
-        importProgress.errors++;
+        
+        totalTokens++;
       }
+      
+      if (!nextCursor || creatorsFound.size >= maxCreators) break;
+      cursor = nextCursor;
+      
+      await sleep(300);
     }
 
-    logger.info(`[HELIUS IMPORT] Found ${creatorsFound.size} unique creators, now verifying...`);
+    logger.info(`[HELIUS IMPORT] Found ${creatorsFound.size} unique creators with ${totalTokens} bonded tokens`);
+    logger.info(`[HELIUS IMPORT] Now verifying each creator...`);
 
-    for (const creatorAddress of creatorsFound) {
+    for (const [creatorAddress, bondedCount] of creatorsFound) {
       try {
         const existingCreator = db.getCreator(creatorAddress);
         
@@ -204,7 +175,6 @@ export async function importFromHelius(maxCreators: number = 200): Promise<Impor
         const launchData = await getCreatorLaunchCount(creatorAddress);
         const actualLaunches = launchData.actualLaunches;
         
-        const bondedCount = (existingCreator?.bonded_count || 0) + 1;
         const hits100k = existingCreator?.hits_100k_count || 0;
         
         importProgress.verified++;
@@ -246,7 +216,7 @@ export async function importFromHelius(maxCreators: number = 200): Promise<Impor
 
         importProgress.imported++;
         
-        if (importProgress.imported % 10 === 0) {
+        if (importProgress.verified % 10 === 0) {
           logger.info(`[HELIUS IMPORT] Progress: ${importProgress.imported} imported, ${importProgress.spam} spam blocked`);
         }
         
