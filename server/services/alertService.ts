@@ -20,11 +20,23 @@ function needsHistoryRefresh(creator: Creator): boolean {
     return false;
   }
   
-  if (creator.total_launches <= 10) {
+  if (creator.bonded_count >= 2) {
+    return false;
+  }
+  
+  if (creator.hits_100k_count >= 2) {
+    return false;
+  }
+  
+  if (creator.total_launches >= 15 && successCount >= 1) {
+    return false;
+  }
+  
+  if (creator.total_launches <= 5 && successCount === 0) {
     return true;
   }
   
-  if (successCount > 0 && successCount <= 2) {
+  if (successCount === 1 && creator.total_launches <= 8) {
     return true;
   }
   
