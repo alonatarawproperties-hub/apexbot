@@ -70,7 +70,7 @@ export function getSettingsKeyboard(settings: UserSettings) {
 export function getBundleSettingsKeyboard(settings: UserSettings) {
   const bundleAlertsText = settings.bundle_alerts_enabled ? "Bundle Alerts: ON" : "Bundle Alerts: OFF";
   const autoSnipeText = settings.bundle_auto_snipe ? "Auto-Snipe: ON" : "Auto-Snipe: OFF";
-  const minSOL = settings.bundle_min_sol ?? 40;
+  const minSOL = settings.bundle_min_sol ?? 2;
   const maxSOL = settings.bundle_max_sol ?? 200;
   const buyAmount = settings.bundle_buy_amount_sol ?? 0.1;
   

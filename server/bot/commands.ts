@@ -19,8 +19,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   min_success_rate: 5,
   max_launches: 500,
   // Bundle detection defaults
-  bundle_alerts_enabled: false,
-  bundle_min_sol: 40,
+  bundle_alerts_enabled: true,
+  bundle_min_sol: 2,
   bundle_max_sol: 200,
   bundle_auto_snipe: false,
   bundle_buy_amount_sol: 0.1,
@@ -644,7 +644,7 @@ async function handleCallback(ctx: Context): Promise<void> {
         
       case "bundle":
         if (value === "show") {
-          const bundleMsg = `🎯 *Bundle Detection Settings*\n\nGet alerts when creators buy significant amounts at token launch\\.\n\n*Current Settings:*\n• Min SOL: ${user.settings.bundle_min_sol || 40}\n• Max SOL: ${user.settings.bundle_max_sol || 200}\n• Auto\\-Snipe: ${user.settings.bundle_auto_snipe ? "ON" : "OFF"}`;
+          const bundleMsg = `🎯 *Bundle Detection Settings*\n\nGet alerts when creators buy significant amounts at token launch\\.\n\n*Current Settings:*\n• Min SOL: ${user.settings.bundle_min_sol ?? 2}\n• Max SOL: ${user.settings.bundle_max_sol ?? 200}\n• Auto\\-Snipe: ${user.settings.bundle_auto_snipe ? "ON" : "OFF"}`;
           await ctx.editMessageText(bundleMsg, {
             parse_mode: "MarkdownV2",
             reply_markup: getBundleSettingsKeyboard(user.settings),

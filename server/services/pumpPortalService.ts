@@ -94,10 +94,18 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
     // Track creator launch for rapid-fire spam detection
     trackCreatorLaunch(token.traderPublicKey, token.symbol);
     
-    // Calculate dev buy amount (vSolInBondingCurve starts at 30 SOL virtual)
+    // Calculate dev buy amount using marketCapSol (which reflects actual SOL in curve after dev buy)
+    // Initial virtual SOL is ~30, so any amount above that is what the dev added
     const INITIAL_VIRTUAL_SOL = 30;
-    const vSol = token.vSolInBondingCurve ?? INITIAL_VIRTUAL_SOL;
-    const devBuySOL = vSol > INITIAL_VIRTUAL_SOL ? vSol - INITIAL_VIRTUAL_SOL : 0;
+    const marketCapSol = token.marketCapSol ?? 0;
+    // Also check vSolInBondingCurve if available
+    const vSol = token.vSolInBondingCurve ?? marketCapSol;
+    const devBuySOL = Math.max(0, vSol - INITIAL_VIRTUAL_SOL, marketCapSol - INITIAL_VIRTUAL_SOL);
+    
+    // Log all tokens with any dev buy for debugging
+    if (devBuySOL > 0.5) {
+      logger.info(`[DEV_BUY] ${token.symbol}: ${devBuySOL.toFixed(2)} SOL (vSol=${vSol}, mcSol=${marketCapSol})`);
+    }
     
     // Check bundle alerts FIRST (instant, before qualified creator check)
     if (devBuySOL > 0) {
@@ -123,8 +131,8 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
 async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Promise<void> {
   const { sendBundleAlert } = await import("./alertService");
   
-  // Log significant dev buys (helps with debugging)
-  if (devBuySOL >= 10) {
+  // Log dev buys >= 2 SOL for testing
+  if (devBuySOL >= 2) {
     logger.info(`[DEV_BUY] ${token.symbol}: ${devBuySOL.toFixed(2)} SOL by ${token.traderPublicKey.slice(0, 8)}...`);
   }
   
@@ -133,11 +141,11 @@ async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Pro
   for (const user of allUsers) {
     const settings = user.settings;
     
-    // Check if user has bundle alerts enabled
-    if (!settings.bundle_alerts_enabled) continue;
+    // Check if user has bundle alerts enabled (default to true)
+    if (settings.bundle_alerts_enabled === false) continue;
     
-    // Check if dev buy is within user's min/max range
-    const minSOL = settings.bundle_min_sol ?? 40;
+    // Check if dev buy is within user's min/max range (defaults match DEFAULT_SETTINGS)
+    const minSOL = settings.bundle_min_sol ?? 2;  // Default to 2 SOL for easier testing
     const maxSOL = settings.bundle_max_sol ?? 200;
     
     if (devBuySOL >= minSOL && devBuySOL <= maxSOL) {

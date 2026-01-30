@@ -57,6 +57,15 @@ Preferred communication style: Simple, everyday language.
 - Manual sell controls (50%/100%)
 - Trade history tracking
 
+### Bundle Detection Feature
+- Detects when token creators buy significant SOL amounts of their own token at launch
+- Uses PumpPortal WebSocket for real-time monitoring of tokens ending in "pump"
+- Dev buy calculated from marketCapSol field (mcSol - 30 baseline)
+- User-configurable min/max SOL thresholds (default: 2-200 SOL)
+- Separate bundle alerts enable/disable setting
+- Optional auto-snipe with configurable buy amount for bundle detections
+- Settings accessed via Telegram bot: /settings → Bundle Alerts
+
 ### Key Design Decisions
 - **SQLite over PostgreSQL**: Chosen for simplicity and zero-configuration deployment. Drizzle config exists for potential PostgreSQL migration.
 - **Grammy over Telegraf**: Selected for its modern TypeScript support and middleware system
