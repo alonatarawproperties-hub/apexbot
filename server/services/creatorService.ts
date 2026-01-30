@@ -2,6 +2,7 @@ import * as db from "../db";
 import { getTokenInfo, getTokensByAddresses } from "./dexscreener";
 import { logger } from "../utils/logger";
 import { getCurrentTimestamp, getPumpFunUrl, formatMarketCap } from "../utils/helpers";
+import { fetchCreatorTokenHistory } from "./bitqueryService";
 import type { Creator, Token, UserSettings, CreatorStats } from "@shared/schema";
 
 export async function processNewToken(
@@ -11,6 +12,7 @@ export async function processNewToken(
   tokenSymbol?: string
 ): Promise<{ creator: Creator; token: Token; isQualified: boolean; watcherUserIds: string[] }> {
   let creator = db.getCreator(creatorAddress);
+  const isNewCreator = !creator;
 
   if (!creator) {
     creator = db.upsertCreator({
@@ -22,6 +24,10 @@ export async function processNewToken(
       is_qualified: 0,
       qualification_reason: null,
       last_updated: getCurrentTimestamp(),
+    });
+    
+    importCreatorHistory(creatorAddress).catch(err => {
+      logger.error(`Failed to import history for ${creatorAddress.slice(0, 8)}:`, err.message);
     });
   } else {
     creator = db.upsertCreator({
@@ -223,4 +229,54 @@ export async function ensureCreatorExists(creatorAddress: string): Promise<Creat
   }
 
   return creator;
+}
+
+export async function importCreatorHistory(creatorAddress: string): Promise<void> {
+  try {
+    const { tokens, totalCount } = await fetchCreatorTokenHistory(creatorAddress, 1000);
+    
+    if (totalCount === 0) {
+      return;
+    }
+    
+    logger.info(`Importing ${totalCount} historical tokens for creator ${creatorAddress.slice(0, 8)}...`);
+    
+    let importedCount = 0;
+    for (const tokenData of tokens) {
+      if (!tokenData.mint) continue;
+      
+      const existingToken = db.getToken(tokenData.mint);
+      if (!existingToken) {
+        db.createToken({
+          address: tokenData.mint,
+          creator_address: creatorAddress,
+          name: null,
+          symbol: null,
+          bonded: 0,
+          peak_mc: 0,
+          peak_mc_timestamp: null,
+          peak_mc_held_minutes: 0,
+          current_mc: 0,
+          pumpfun_url: getPumpFunUrl(tokenData.mint),
+        });
+        importedCount++;
+      }
+    }
+    
+    const creator = db.getCreator(creatorAddress);
+    if (creator) {
+      const allTokens = db.getTokensByCreator(creatorAddress);
+      db.upsertCreator({
+        ...creator,
+        total_launches: allTokens.length,
+        last_updated: getCurrentTimestamp(),
+      });
+    }
+    
+    logger.info(`Imported ${importedCount} new tokens for creator ${creatorAddress.slice(0, 8)}`);
+    
+    await recalculateCreatorStats(creatorAddress);
+  } catch (error: any) {
+    logger.error(`Error importing history for ${creatorAddress.slice(0, 8)}:`, error.message);
+  }
 }
