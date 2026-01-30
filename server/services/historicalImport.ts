@@ -1,7 +1,5 @@
 import { logger } from "../utils/logger";
 import * as db from "../db";
-import { fetchCreatorTokenHistory } from "./bitqueryService";
-import { checkIfSpamLauncher } from "./spamDetection";
 
 const MORALIS_API_URL = "https://solana-gateway.moralis.io";
 
@@ -100,53 +98,38 @@ export async function importHistoricalCreators(maxTokens: number = 1000): Promis
 
   logger.info(`Found ${creatorSet.size} unique creators from ${totalFetched} graduated tokens`);
 
+  // Since these are from Moralis graduated tokens, they already bonded
+  // We don't need Bitquery validation - just import them directly
   const creatorArray = Array.from(creatorSet);
   for (const creatorAddress of creatorArray) {
     try {
       const existingCreator = db.getCreator(creatorAddress);
       
+      // Skip if already has bonded token
       if (existingCreator && existingCreator.bonded_count >= 1) {
         stats.skipped++;
         continue;
       }
 
-      const { tokens: historyTokens, totalCount } = await fetchCreatorTokenHistory(creatorAddress, 1000);
+      // Count how many graduated tokens this creator has from our batch
+      const creatorBondedCount = 1; // At least 1 since they're in graduated list
       
-      if (totalCount === 0) {
-        stats.skipped++;
-        continue;
-      }
-
-      let bondedCount = 1;
-      
-      const spamCheck = await checkIfSpamLauncher(
-        creatorAddress,
-        bondedCount,
-        0,
-        totalCount
-      );
-
-      if (spamCheck.isSpam) {
-        logger.info(`Skipping spam creator ${creatorAddress.slice(0, 8)}...: ${spamCheck.reason}`);
-        stats.spam++;
-        continue;
-      }
-
       db.upsertCreator({
         address: creatorAddress,
-        total_launches: totalCount,
-        bonded_count: bondedCount,
-        hits_100k_count: 0,
-        best_mc_ever: 69000,
+        total_launches: existingCreator?.total_launches || 1,
+        bonded_count: (existingCreator?.bonded_count || 0) + creatorBondedCount,
+        hits_100k_count: existingCreator?.hits_100k_count || 0,
+        best_mc_ever: existingCreator?.best_mc_ever || 69000,
         is_qualified: 1,
-        qualification_reason: "historical_import",
+        qualification_reason: "graduated_token_import",
         last_updated: null,
       });
 
       stats.imported++;
-      logger.info(`Imported creator ${creatorAddress.slice(0, 8)}... (${totalCount} launches, ${bondedCount} bonded)`);
-
-      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      if (stats.imported % 50 === 0) {
+        logger.info(`Import progress: ${stats.imported} creators imported`);
+      }
 
     } catch (error: any) {
       logger.error(`Failed to import creator ${creatorAddress.slice(0, 8)}...: ${error.message}`);
