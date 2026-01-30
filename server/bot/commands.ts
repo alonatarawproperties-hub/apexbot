@@ -34,9 +34,10 @@ export function registerCommands(bot: Bot): void {
 
 async function handleImport(ctx: Context): Promise<void> {
   const userId = ctx.from?.id.toString();
+  logger.info(`Import command from user: ${userId}`);
   
   if (!userId || !ADMIN_USER_IDS.includes(userId)) {
-    await ctx.reply("This command is only available to admins.");
+    await ctx.reply(`This command is only available to admins. Your ID: ${userId}`);
     return;
   }
 
