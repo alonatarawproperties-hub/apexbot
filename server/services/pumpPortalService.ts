@@ -123,6 +123,11 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
 async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Promise<void> {
   const { sendBundleAlert } = await import("./alertService");
   
+  // Log significant dev buys (helps with debugging)
+  if (devBuySOL >= 10) {
+    logger.info(`[DEV_BUY] ${token.symbol}: ${devBuySOL.toFixed(2)} SOL by ${token.traderPublicKey.slice(0, 8)}...`);
+  }
+  
   const allUsers = db.getAllUsers();
   
   for (const user of allUsers) {
