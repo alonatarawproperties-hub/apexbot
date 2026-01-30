@@ -47,6 +47,12 @@ export async function fetchGraduatedTokens(limit: number = 100, cursor?: string)
 
     const result: MoralisGraduatedResponse = await response.json();
     
+    logger.info(`Moralis returned ${result.result?.length || 0} tokens`);
+    if (result.result && result.result.length > 0) {
+      logger.info(`Sample token fields: ${JSON.stringify(Object.keys(result.result[0]))}`);
+      logger.info(`Sample token: ${JSON.stringify(result.result[0])}`);
+    }
+    
     return {
       tokens: result.result || [],
       nextCursor: result.cursor,
