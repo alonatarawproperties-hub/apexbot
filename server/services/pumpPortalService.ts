@@ -94,17 +94,16 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
     // Track creator launch for rapid-fire spam detection
     trackCreatorLaunch(token.traderPublicKey, token.symbol);
     
-    // Calculate dev buy amount using marketCapSol (which reflects actual SOL in curve after dev buy)
+    // Calculate dev buy amount using vSolInBondingCurve (actual SOL locked in curve)
     // Initial virtual SOL is ~30, so any amount above that is what the dev added
+    // Note: marketCapSol represents total market cap VALUE, NOT actual SOL in curve
     const INITIAL_VIRTUAL_SOL = 30;
-    const marketCapSol = token.marketCapSol ?? 0;
-    // Also check vSolInBondingCurve if available
-    const vSol = token.vSolInBondingCurve ?? marketCapSol;
-    const devBuySOL = Math.max(0, vSol - INITIAL_VIRTUAL_SOL, marketCapSol - INITIAL_VIRTUAL_SOL);
+    const vSol = token.vSolInBondingCurve ?? 0;
+    const devBuySOL = Math.max(0, vSol - INITIAL_VIRTUAL_SOL);
     
     // Log all tokens with any dev buy for debugging
     if (devBuySOL > 0.5) {
-      logger.info(`[DEV_BUY] ${token.symbol}: ${devBuySOL.toFixed(2)} SOL (vSol=${vSol}, mcSol=${marketCapSol})`);
+      logger.info(`[DEV_BUY] ${token.symbol}: ${devBuySOL.toFixed(2)} SOL (vSol=${vSol})`);
     }
     
     // Check bundle alerts FIRST (instant, before qualified creator check)
