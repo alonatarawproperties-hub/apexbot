@@ -15,6 +15,8 @@ import {
 } from "../services/sniperService";
 import type { SniperSettings, Position } from "@shared/schema";
 
+const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
+
 export function registerSniperCommands(bot: Bot): void {
   bot.command("sniper", handleSniper);
 }
@@ -55,7 +57,7 @@ async function handleSniper(ctx: Context): Promise<void> {
   const keyboard = getSniperMainKeyboard();
   
   const walletStatus = wallet 
-    ? `💼 Wallet: \`${formatAddress(wallet.public_key, 6)}\` (${balance.toFixed(4)} SOL)`
+    ? `💼 Wallet: \`${formatMarkdownValue(formatAddress(wallet.public_key, 6))}\` \\- ${formatMarkdownValue(balance.toFixed(4))} SOL`
     : "💼 Wallet: Not configured";
   
   const autoBuyStatus = settings.auto_buy_enabled ? "🟢 ON" : "🔴 OFF";
@@ -66,10 +68,10 @@ ${walletStatus}
 🎯 Auto\\-Buy: ${autoBuyStatus}
 
 ⚙️ *Settings:*
-├ Buy: ${settings.buy_amount_sol} SOL
-├ Slip: ${settings.slippage_percent}%
-├ Jito: ${settings.jito_tip_sol} SOL
-└ SL: \\-${settings.stop_loss_percent}%
+├ Buy: ${formatMarkdownValue(settings.buy_amount_sol)} SOL
+├ Slip: ${formatMarkdownValue(settings.slippage_percent)}%
+├ Jito: ${formatMarkdownValue(settings.jito_tip_sol)} SOL
+└ SL: ${formatMarkdownValue(`-${settings.stop_loss_percent}`)}%
 
 📈 *Take Profit:*`;
 
@@ -77,10 +79,10 @@ ${walletStatus}
   const brackets = settings.tp_brackets || [];
   brackets.forEach((b, i) => {
     const prefix = i === brackets.length - 1 && settings.moon_bag_percent === 0 ? "└" : "├";
-    tpMessage += `\n${prefix} TP${i + 1}: ${b.percentage}% @ ${b.multiplier}x`;
+    tpMessage += `\n${prefix} TP${i + 1}: ${formatMarkdownValue(b.percentage)}% @ ${formatMarkdownValue(b.multiplier)}x`;
   });
   if (settings.moon_bag_percent > 0) {
-    tpMessage += `\n└ Moon: ${settings.moon_bag_percent}% keep`;
+    tpMessage += `\n└ Moon: ${formatMarkdownValue(settings.moon_bag_percent)}% keep`;
   }
   
   await ctx.reply(message + tpMessage, {
@@ -172,11 +174,11 @@ async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
   const settings = db.getOrCreateSniperSettings(userId);
   
   const keyboard = new InlineKeyboard()
-    .text(`Buy: ${settings.buy_amount_sol} SOL`, "sniper:edit_buy")
-    .text(`Slip: ${settings.slippage_percent}%`, "sniper:edit_slip")
+    .text(`Buy: ${formatMarkdownValue(settings.buy_amount_sol)} SOL`, "sniper:edit_buy")
+    .text(`Slip: ${formatMarkdownValue(settings.slippage_percent)}%`, "sniper:edit_slip")
     .row()
-    .text(`Jito: ${settings.jito_tip_sol} SOL`, "sniper:edit_jito")
-    .text(`SL: -${settings.stop_loss_percent}%`, "sniper:edit_sl")
+    .text(`Jito: ${formatMarkdownValue(settings.jito_tip_sol)} SOL`, "sniper:edit_jito")
+    .text(`SL: ${formatMarkdownValue(`-${settings.stop_loss_percent}`)}%`, "sniper:edit_sl")
     .row()
     .text("📈 Edit Take Profit", "sniper:edit_tp")
     .row()
@@ -187,24 +189,24 @@ async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
   const brackets = settings.tp_brackets || [];
   let tpText = "";
   brackets.forEach((b, i) => {
-    tpText += `\nTP${i + 1}: ${b.percentage}% @ ${b.multiplier}x`;
+    tpText += `\nTP${i + 1}: ${formatMarkdownValue(b.percentage)}% @ ${formatMarkdownValue(b.multiplier)}x`;
   });
   if (settings.moon_bag_percent > 0) {
-    tpText += `\nMoon Bag: ${settings.moon_bag_percent}%`;
+    tpText += `\nMoon Bag: ${formatMarkdownValue(settings.moon_bag_percent)}%`;
   }
   
   await ctx.editMessageText(
     `⚙️ *SNIPER SETTINGS*
 
 💰 *Buy Settings:*
-├ Amount: ${settings.buy_amount_sol} SOL
-├ Slippage: ${settings.slippage_percent}%
-├ Jito Tip: ${settings.jito_tip_sol} SOL
-└ Priority: ${settings.priority_fee_lamports} lamports
+├ Amount: ${formatMarkdownValue(settings.buy_amount_sol)} SOL
+├ Slippage: ${formatMarkdownValue(settings.slippage_percent)}%
+├ Jito Tip: ${formatMarkdownValue(settings.jito_tip_sol)} SOL
+└ Priority: ${formatMarkdownValue(settings.priority_fee_lamports)} lamports
 
 📈 *Take Profit:*${tpText}
 
-📉 *Stop Loss:* \\-${settings.stop_loss_percent}%
+📉 *Stop Loss:* ${formatMarkdownValue(`-${settings.stop_loss_percent}`)}%
 
 🎯 *Auto\\-Buy:* ${settings.auto_buy_enabled ? "Enabled" : "Disabled"}`,
     {
@@ -257,7 +259,7 @@ Choose an option:
 *Address:*
 \`${wallet.public_key}\`
 
-*Balance:* ${balance.toFixed(6)} SOL
+*Balance:* ${formatMarkdownValue(balance.toFixed(6))} SOL
 
 ⚠️ Send SOL to this address to start sniping\\.`,
     {
@@ -300,9 +302,10 @@ Positions will appear here when you snipe tokens\\.`,
       ? `+${pos.unrealized_pnl_percent.toFixed(1)}%`
       : `${pos.unrealized_pnl_percent.toFixed(1)}%`;
     
-    message += `*${pos.token_symbol || formatAddress(pos.token_address, 6)}*\n`;
-    message += `Entry: ${pos.entry_amount_sol} SOL\n`;
-    message += `P&L: ${pnlEmoji} ${pnlText}\n\n`;
+    const tokenLabel = pos.token_symbol ? formatMarkdownValue(pos.token_symbol) : formatMarkdownValue(formatAddress(pos.token_address, 6));
+    message += `*${tokenLabel}*\n`;
+    message += `Entry: ${formatMarkdownValue(pos.entry_amount_sol)} SOL\n`;
+    message += `P&L: ${pnlEmoji} ${formatMarkdownValue(pnlText)}\n\n`;
     
     keyboard
       .text(`Sell 50% #${pos.id}`, `sniper:sell:${pos.id}:50`)
@@ -345,8 +348,9 @@ No trades yet\\.`,
   for (const trade of trades.slice(0, 10)) {
     const emoji = trade.trade_type === "buy" ? "🟢" : "🔴";
     const type = trade.trade_type.toUpperCase();
-    message += `${emoji} ${type} ${trade.token_symbol || "???"}\n`;
-    message += `${trade.amount_sol.toFixed(4)} SOL\n\n`;
+    const tradeSymbol = trade.token_symbol ? formatMarkdownValue(trade.token_symbol) : "???";
+    message += `${emoji} ${formatMarkdownValue(type)} ${tradeSymbol}\n`;
+    message += `${formatMarkdownValue(trade.amount_sol.toFixed(4))} SOL\n\n`;
   }
   
   const keyboard = new InlineKeyboard()
@@ -499,7 +503,7 @@ async function promptEditBuy(ctx: Context, userId: string): Promise<void> {
   await ctx.editMessageText(
     `💰 *EDIT BUY AMOUNT*
 
-Current: ${db.getOrCreateSniperSettings(userId).buy_amount_sol} SOL
+Current: ${formatMarkdownValue(db.getOrCreateSniperSettings(userId).buy_amount_sol)} SOL
 
 Select amount:`,
     {
@@ -522,7 +526,7 @@ async function promptEditSlippage(ctx: Context, userId: string): Promise<void> {
   await ctx.editMessageText(
     `📊 *EDIT SLIPPAGE*
 
-Current: ${db.getOrCreateSniperSettings(userId).slippage_percent}%
+Current: ${formatMarkdownValue(db.getOrCreateSniperSettings(userId).slippage_percent)}%
 
 Select slippage:`,
     {
@@ -545,7 +549,7 @@ async function promptEditJito(ctx: Context, userId: string): Promise<void> {
   await ctx.editMessageText(
     `⚡ *EDIT JITO TIP*
 
-Current: ${db.getOrCreateSniperSettings(userId).jito_tip_sol} SOL
+Current: ${formatMarkdownValue(db.getOrCreateSniperSettings(userId).jito_tip_sol)} SOL
 
 Higher tip = faster execution
 
@@ -570,7 +574,7 @@ async function promptEditStopLoss(ctx: Context, userId: string): Promise<void> {
   await ctx.editMessageText(
     `📉 *EDIT STOP LOSS*
 
-Current: \\-${db.getOrCreateSniperSettings(userId).stop_loss_percent}%
+Current: ${formatMarkdownValue(`-${db.getOrCreateSniperSettings(userId).stop_loss_percent}`)}%
 
 Sells 100% when price drops this much\\.
 
@@ -597,9 +601,9 @@ async function showTPMenu(ctx: Context, userId: string): Promise<void> {
   
   let tpText = "";
   brackets.forEach((b, i) => {
-    tpText += `TP${i + 1}: ${b.percentage}% @ ${b.multiplier}x\n`;
+    tpText += `TP${i + 1}: ${formatMarkdownValue(b.percentage)}% @ ${formatMarkdownValue(b.multiplier)}x\n`;
   });
-  tpText += `Moon Bag: ${settings.moon_bag_percent}%`;
+  tpText += `Moon Bag: ${formatMarkdownValue(settings.moon_bag_percent)}%`;
   
   await ctx.editMessageText(
     `📈 *TAKE PROFIT BRACKETS*
