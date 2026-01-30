@@ -4,6 +4,7 @@ import { getCreatorStats, ensureCreatorExists, recalculateCreatorStats } from ".
 import { logger } from "../utils/logger";
 import { isValidSolanaAddress, formatAddress, formatMarketCap, formatPercentage, escapeMarkdown, getPumpFunUrl, getDexScreenerUrl } from "../utils/helpers";
 import { getStartKeyboard, getHelpKeyboard, getSettingsKeyboard, getStatsKeyboard, getWatchlistKeyboard, getBackToWatchlistKeyboard, getTokensKeyboard } from "./keyboards";
+import { importHistoricalCreators } from "../services/historicalImport";
 import type { UserSettings } from "@shared/schema";
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -15,6 +16,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   notifications_enabled: true,
 };
 
+const ADMIN_USER_IDS = ["7463078053"];
+
 export function registerCommands(bot: Bot): void {
   bot.command("start", handleStart);
   bot.command("help", handleHelp);
@@ -24,8 +27,34 @@ export function registerCommands(bot: Bot): void {
   bot.command("watchlist", handleWatchlist);
   bot.command("settings", handleSettings);
   bot.command("recent", handleRecent);
+  bot.command("import", handleImport);
   
   bot.on("callback_query:data", handleCallback);
+}
+
+async function handleImport(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id.toString();
+  
+  if (!userId || !ADMIN_USER_IDS.includes(userId)) {
+    await ctx.reply("This command is only available to admins.");
+    return;
+  }
+
+  await ctx.reply("Starting historical creator import... This may take a few minutes.");
+  
+  try {
+    const stats = await importHistoricalCreators(500);
+    
+    await ctx.reply(
+      `Historical import complete:\n` +
+      `- Imported: ${stats.imported} creators\n` +
+      `- Skipped: ${stats.skipped}\n` +
+      `- Spam filtered: ${stats.spam}`
+    );
+  } catch (error: any) {
+    await ctx.reply(`Import failed: ${error.message}`);
+    logger.error("Historical import failed:", error.message);
+  }
 }
 
 async function ensureUser(ctx: Context): Promise<void> {
