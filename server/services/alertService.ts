@@ -210,6 +210,7 @@ export async function sendBundleAlert(
   
   const name = tokenName || "Unknown";
   const symbol = tokenSymbol || "???";
+  const devBuyFormatted = escapeMarkdown(devBuySOL.toFixed(2));
   
   const message = `🎯 *APEX \\- DEV BUNDLE DETECTED* 🎯
 
@@ -218,9 +219,9 @@ export async function sendBundleAlert(
 
 *Creator:* [${formatAddress(creatorAddress, 6)}](${getPumpFunProfileUrl(creatorAddress)})
 
-💰 *Dev Buy:* ${devBuySOL.toFixed(2)} SOL
+💰 *Dev Buy:* ${devBuyFormatted} SOL
 
-⚡ This creator bought ${devBuySOL.toFixed(2)} SOL worth at launch\\!
+⚡ This creator bought ${devBuyFormatted} SOL worth at launch\\!
 
 🔗 [PumpFun](${getPumpFunUrl(tokenAddress)}) • [DexScreener](${getDexScreenerUrl(tokenAddress)}) • [Creator](${getPumpFunProfileUrl(creatorAddress)})`;
   
@@ -264,7 +265,7 @@ export async function sendBundleAlert(
           if (result.success) {
             botInstance?.api.sendMessage(user.telegram_id,
               `✅ *BUNDLE AUTO\\-SNIPE SUCCESS*\n\n` +
-              `Bought $${escapeMarkdown(symbol)} with ${buyAmountSOL} SOL\n` +
+              `Bought $${escapeMarkdown(symbol)} with ${escapeMarkdown(buyAmountSOL.toString())} SOL\n` +
               `TX: \`${result.txSignature?.slice(0, 20) || "pending"}\\.\\.\\.\``,
               { parse_mode: "MarkdownV2" }
             ).catch((e) => logger.error(`Failed to send bundle snipe success: ${e.message}`));
