@@ -217,7 +217,7 @@ export async function sendBundleAlert(
 *Token:* $${escapeMarkdown(symbol)} \\(${escapeMarkdown(name)}\\)
 \`${tokenAddress}\`
 
-*Creator:* [${formatAddress(creatorAddress, 6)}](${getPumpFunProfileUrl(creatorAddress)})
+*Creator:* [${escapeMarkdown(formatAddress(creatorAddress, 6))}](${getPumpFunProfileUrl(creatorAddress)})
 
 💰 *Dev Buy:* ${devBuyFormatted} SOL
 
