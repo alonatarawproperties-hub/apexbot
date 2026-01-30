@@ -94,6 +94,16 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
     // Track creator launch for rapid-fire spam detection
     trackCreatorLaunch(token.traderPublicKey, token.symbol);
     
+    // Calculate dev buy amount (vSolInBondingCurve starts at 30 SOL virtual)
+    const INITIAL_VIRTUAL_SOL = 30;
+    const vSol = token.vSolInBondingCurve ?? INITIAL_VIRTUAL_SOL;
+    const devBuySOL = vSol > INITIAL_VIRTUAL_SOL ? vSol - INITIAL_VIRTUAL_SOL : 0;
+    
+    // Check bundle alerts FIRST (instant, before qualified creator check)
+    if (devBuySOL > 0) {
+      await checkBundleAlerts(token, devBuySOL);
+    }
+    
     const result = await processNewToken(
       token.traderPublicKey,
       token.mint,
@@ -107,6 +117,38 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
     }
   } catch (error: any) {
     logger.error("Failed to process PumpPortal token", error.message);
+  }
+}
+
+async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Promise<void> {
+  const { sendBundleAlert } = await import("./alertService");
+  
+  const allUsers = db.getAllUsers();
+  
+  for (const user of allUsers) {
+    const settings = user.settings;
+    
+    // Check if user has bundle alerts enabled
+    if (!settings.bundle_alerts_enabled) continue;
+    
+    // Check if dev buy is within user's min/max range
+    const minSOL = settings.bundle_min_sol ?? 40;
+    const maxSOL = settings.bundle_max_sol ?? 200;
+    
+    if (devBuySOL >= minSOL && devBuySOL <= maxSOL) {
+      logger.info(`[BUNDLE] ${token.symbol} - Dev bought ${devBuySOL.toFixed(2)} SOL, alerting user ${user.telegram_id}`);
+      
+      await sendBundleAlert(
+        user,
+        token.mint,
+        token.name,
+        token.symbol,
+        token.traderPublicKey,
+        devBuySOL,
+        settings.bundle_auto_snipe ?? false,
+        settings.bundle_buy_amount_sol ?? 0.1
+      );
+    }
   }
 }
 

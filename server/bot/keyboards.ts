@@ -58,7 +58,47 @@ export function getSettingsKeyboard(settings: UserSettings) {
         { text: alertsText, callback_data: "apex:alerts:toggle" },
       ],
       [
+        { text: "🎯 Bundle Detection", callback_data: "apex:bundle:show" },
+      ],
+      [
         { text: "↺ Reset Defaults", callback_data: "apex:settings:reset" },
+      ],
+    ],
+  };
+}
+
+export function getBundleSettingsKeyboard(settings: UserSettings) {
+  const bundleAlertsText = settings.bundle_alerts_enabled ? "Bundle Alerts: ON" : "Bundle Alerts: OFF";
+  const autoSnipeText = settings.bundle_auto_snipe ? "Auto-Snipe: ON" : "Auto-Snipe: OFF";
+  const minSOL = settings.bundle_min_sol ?? 40;
+  const maxSOL = settings.bundle_max_sol ?? 200;
+  const buyAmount = settings.bundle_buy_amount_sol ?? 0.1;
+  
+  return {
+    inline_keyboard: [
+      [
+        { text: bundleAlertsText, callback_data: "apex:bundle_alerts:toggle" },
+      ],
+      [
+        { text: "−", callback_data: "apex:bundle_min:dec" },
+        { text: `Min SOL: ${minSOL}`, callback_data: "apex:noop" },
+        { text: "+", callback_data: "apex:bundle_min:inc" },
+      ],
+      [
+        { text: "−", callback_data: "apex:bundle_max:dec" },
+        { text: `Max SOL: ${maxSOL}`, callback_data: "apex:noop" },
+        { text: "+", callback_data: "apex:bundle_max:inc" },
+      ],
+      [
+        { text: autoSnipeText, callback_data: "apex:bundle_snipe:toggle" },
+      ],
+      [
+        { text: "−", callback_data: "apex:bundle_buy:dec" },
+        { text: `Buy Amount: ${buyAmount} SOL`, callback_data: "apex:noop" },
+        { text: "+", callback_data: "apex:bundle_buy:inc" },
+      ],
+      [
+        { text: "« Back to Settings", callback_data: "apex:settings:show" },
       ],
     ],
   };

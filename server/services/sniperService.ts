@@ -34,7 +34,8 @@ export async function snipeToken(
   userId: string,
   tokenAddress: string,
   tokenSymbol: string | null,
-  tokenName: string | null
+  tokenName: string | null,
+  buyAmountOverride?: number
 ): Promise<SnipeResult> {
   const keypair = getUserKeypair(userId);
   if (!keypair) {
@@ -42,10 +43,11 @@ export async function snipeToken(
   }
   
   const settings = db.getOrCreateSniperSettings(userId);
+  const actualBuyAmount = buyAmountOverride ?? settings.buy_amount_sol;
   
   const connection = getConnection();
   const balance = await connection.getBalance(keypair.publicKey);
-  const buyAmountLamports = settings.buy_amount_sol * LAMPORTS_PER_SOL;
+  const buyAmountLamports = actualBuyAmount * LAMPORTS_PER_SOL;
   const jitoTipLamports = settings.jito_tip_sol * LAMPORTS_PER_SOL;
   const totalNeeded = buyAmountLamports + jitoTipLamports + 10000;
   

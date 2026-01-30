@@ -192,3 +192,103 @@ function getAlertKeyboard(creatorAddress: string, tokenAddress: string) {
     ],
   };
 }
+
+export async function sendBundleAlert(
+  user: User,
+  tokenAddress: string,
+  tokenName: string | null,
+  tokenSymbol: string | null,
+  creatorAddress: string,
+  devBuySOL: number,
+  autoSnipe: boolean,
+  buyAmountSOL: number
+): Promise<void> {
+  if (!botInstance) {
+    logger.error("Bot instance not set for bundle alerts");
+    return;
+  }
+  
+  const name = tokenName || "Unknown";
+  const symbol = tokenSymbol || "???";
+  
+  const message = `🎯 *APEX \\- DEV BUNDLE DETECTED* 🎯
+
+*Token:* $${escapeMarkdown(symbol)} \\(${escapeMarkdown(name)}\\)
+\`${tokenAddress}\`
+
+*Creator:* [${formatAddress(creatorAddress, 6)}](${getPumpFunProfileUrl(creatorAddress)})
+
+💰 *Dev Buy:* ${devBuySOL.toFixed(2)} SOL
+
+⚡ This creator bought ${devBuySOL.toFixed(2)} SOL worth at launch\\!
+
+🔗 [PumpFun](${getPumpFunUrl(tokenAddress)}) • [DexScreener](${getDexScreenerUrl(tokenAddress)}) • [Creator](${getPumpFunProfileUrl(creatorAddress)})`;
+  
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: "⭐ Watch Creator", callback_data: `apex:watch:${creatorAddress}` },
+        { text: "🎯 Snipe Now", callback_data: `sniper:buy:${tokenAddress}` },
+      ],
+      [
+        { text: "🔗 PumpFun", url: getPumpFunUrl(tokenAddress) },
+        { text: "📈 DexScreener", url: getDexScreenerUrl(tokenAddress) },
+      ],
+    ],
+  };
+  
+  try {
+    await botInstance.api.sendMessage(user.telegram_id, message, {
+      parse_mode: "MarkdownV2",
+      reply_markup: keyboard,
+      link_preview_options: { is_disabled: true },
+    });
+    
+    db.logAlert({
+      user_id: user.telegram_id,
+      creator_address: creatorAddress,
+      token_address: tokenAddress,
+      alert_type: "bundle",
+      delivered: 1,
+    });
+    
+    db.incrementUserAlerts(user.telegram_id);
+    
+    logger.alert(`Bundle alert sent to ${user.telegram_id} for ${symbol} (${devBuySOL.toFixed(2)} SOL)`);
+    
+    // Auto-snipe if enabled - pass buy amount directly to avoid race conditions
+    if (autoSnipe) {
+      const wallet = db.getWallet(user.telegram_id);
+      if (wallet) {
+        snipeToken(user.telegram_id, tokenAddress, tokenSymbol, tokenName, buyAmountSOL).then((result) => {
+          if (result.success) {
+            botInstance?.api.sendMessage(user.telegram_id,
+              `✅ *BUNDLE AUTO\\-SNIPE SUCCESS*\n\n` +
+              `Bought $${escapeMarkdown(symbol)} with ${buyAmountSOL} SOL\n` +
+              `TX: \`${result.txSignature?.slice(0, 20) || "pending"}\\.\\.\\.\``,
+              { parse_mode: "MarkdownV2" }
+            ).catch((e) => logger.error(`Failed to send bundle snipe success: ${e.message}`));
+          } else {
+            botInstance?.api.sendMessage(user.telegram_id,
+              `❌ *BUNDLE AUTO\\-SNIPE FAILED*\n\n` +
+              `$${escapeMarkdown(symbol)}: ${escapeMarkdown(result.error || "Unknown error")}`,
+              { parse_mode: "MarkdownV2" }
+            ).catch((e) => logger.error(`Failed to send bundle snipe fail: ${e.message}`));
+          }
+        }).catch((err) => {
+          logger.error(`Bundle auto-snipe error for ${user.telegram_id}: ${err.message}`);
+        });
+      }
+    }
+  } catch (error: any) {
+    logger.error(`Failed to send bundle alert to ${user.telegram_id}`, error.message);
+    
+    db.logAlert({
+      user_id: user.telegram_id,
+      creator_address: creatorAddress,
+      token_address: tokenAddress,
+      alert_type: "bundle",
+      delivered: 0,
+    });
+  }
+}

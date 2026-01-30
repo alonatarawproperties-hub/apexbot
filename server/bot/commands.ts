@@ -3,7 +3,7 @@ import * as db from "../db";
 import { getCreatorStats, ensureCreatorExists, recalculateCreatorStats } from "../services/creatorService";
 import { logger } from "../utils/logger";
 import { isValidSolanaAddress, formatAddress, formatMarketCap, formatPercentage, escapeMarkdown, getPumpFunUrl, getDexScreenerUrl } from "../utils/helpers";
-import { getStartKeyboard, getHelpKeyboard, getSettingsKeyboard, getStatsKeyboard, getWatchlistKeyboard, getBackToWatchlistKeyboard, getTokensKeyboard } from "./keyboards";
+import { getStartKeyboard, getHelpKeyboard, getSettingsKeyboard, getBundleSettingsKeyboard, getStatsKeyboard, getWatchlistKeyboard, getBackToWatchlistKeyboard, getTokensKeyboard } from "./keyboards";
 import { importHistoricalCreators } from "../services/historicalImport";
 import { runCreatorBackfill, getBackfillProgress } from "../services/heliusBackfill";
 import { registerSniperCommands, handleSniperCallback, handlePrivateKeyImport, hasPendingInput, handleCustomInput } from "./sniperCommands";
@@ -642,6 +642,45 @@ async function handleCallback(ctx: Context): Promise<void> {
         await ctx.answerCallbackQuery(`Alerts: ${newAlerts ? "ON" : "OFF"}`);
         break;
         
+      case "bundle":
+        if (value === "show") {
+          const bundleMsg = `🎯 *Bundle Detection Settings*\n\nGet alerts when creators buy significant amounts at token launch\\.\n\n*Current Settings:*\n• Min SOL: ${user.settings.bundle_min_sol || 40}\n• Max SOL: ${user.settings.bundle_max_sol || 200}\n• Auto\\-Snipe: ${user.settings.bundle_auto_snipe ? "ON" : "OFF"}`;
+          await ctx.editMessageText(bundleMsg, {
+            parse_mode: "MarkdownV2",
+            reply_markup: getBundleSettingsKeyboard(user.settings),
+          });
+        }
+        await ctx.answerCallbackQuery();
+        break;
+        
+      case "bundle_alerts":
+        const newBundleAlerts = !user.settings.bundle_alerts_enabled;
+        const bundleSettings1 = { ...user.settings, bundle_alerts_enabled: newBundleAlerts };
+        db.updateUserSettings(userId, bundleSettings1);
+        await ctx.editMessageReplyMarkup({ reply_markup: getBundleSettingsKeyboard(bundleSettings1) });
+        await ctx.answerCallbackQuery(`Bundle Alerts: ${newBundleAlerts ? "ON" : "OFF"}`);
+        break;
+        
+      case "bundle_snipe":
+        const newBundleSnipe = !user.settings.bundle_auto_snipe;
+        const bundleSettings2 = { ...user.settings, bundle_auto_snipe: newBundleSnipe };
+        db.updateUserSettings(userId, bundleSettings2);
+        await ctx.editMessageReplyMarkup({ reply_markup: getBundleSettingsKeyboard(bundleSettings2) });
+        await ctx.answerCallbackQuery(`Bundle Auto-Snipe: ${newBundleSnipe ? "ON" : "OFF"}`);
+        break;
+        
+      case "bundle_min":
+        await handleBundleSettingChange(ctx, user, "bundle_min_sol", value);
+        break;
+        
+      case "bundle_max":
+        await handleBundleSettingChange(ctx, user, "bundle_max_sol", value);
+        break;
+        
+      case "bundle_buy":
+        await handleBundleSettingChange(ctx, user, "bundle_buy_amount_sol", value);
+        break;
+        
       case "watch":
         if (!db.isOnWatchlist(userId, value)) {
           await ensureCreatorExists(value);
@@ -730,5 +769,39 @@ async function handleSettingChange(
   db.updateUserSettings(userId, settings);
   
   await ctx.editMessageReplyMarkup({ reply_markup: getSettingsKeyboard(settings) });
+  await ctx.answerCallbackQuery(`Updated to ${newValue}`);
+}
+
+async function handleBundleSettingChange(
+  ctx: Context,
+  user: NonNullable<ReturnType<typeof db.getUser>>,
+  field: "bundle_min_sol" | "bundle_max_sol" | "bundle_buy_amount_sol",
+  direction: string
+): Promise<void> {
+  const userId = ctx.from!.id.toString();
+  const settings = { ...user.settings };
+  const defaultValue = field === "bundle_buy_amount_sol" ? 0.1 : (field === "bundle_max_sol" ? 200 : 40);
+  const current = settings[field] ?? defaultValue;
+  
+  let newValue: number;
+  if (field === "bundle_buy_amount_sol") {
+    if (direction === "inc") {
+      newValue = Math.min(10, current + 0.1);
+    } else {
+      newValue = Math.max(0.01, current - 0.1);
+    }
+    newValue = Math.round(newValue * 100) / 100;
+  } else {
+    if (direction === "inc") {
+      newValue = current + 10;
+    } else {
+      newValue = Math.max(10, current - 10);
+    }
+  }
+  
+  (settings[field] as number) = newValue;
+  db.updateUserSettings(userId, settings);
+  
+  await ctx.editMessageReplyMarkup({ reply_markup: getBundleSettingsKeyboard(settings) });
   await ctx.answerCallbackQuery(`Updated to ${newValue}`);
 }
