@@ -174,11 +174,11 @@ async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
   const settings = db.getOrCreateSniperSettings(userId);
   
   const keyboard = new InlineKeyboard()
-    .text(`Buy: ${formatMarkdownValue(settings.buy_amount_sol)} SOL`, "sniper:edit_buy")
-    .text(`Slip: ${formatMarkdownValue(settings.slippage_percent)}%`, "sniper:edit_slip")
+    .text(`Buy: ${settings.buy_amount_sol} SOL`, "sniper:edit_buy")
+    .text(`Slip: ${settings.slippage_percent}%`, "sniper:edit_slip")
     .row()
-    .text(`Jito: ${formatMarkdownValue(settings.jito_tip_sol)} SOL`, "sniper:edit_jito")
-    .text(`SL: ${formatMarkdownValue(`-${settings.stop_loss_percent}`)}%`, "sniper:edit_sl")
+    .text(`Jito: ${settings.jito_tip_sol} SOL`, "sniper:edit_jito")
+    .text(`SL: -${settings.stop_loss_percent}%`, "sniper:edit_sl")
     .row()
     .text("📈 Edit Take Profit", "sniper:edit_tp")
     .row()
