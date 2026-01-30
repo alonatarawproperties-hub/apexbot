@@ -32,7 +32,6 @@ export function registerCommands(bot: Bot): void {
   bot.command("settings", handleSettings);
   bot.command("recent", handleRecent);
   bot.command("import", handleImport);
-  bot.command("importflipside", handleFlipsideImport);
   bot.command("backfill", handleBackfill);
   bot.command("backfillstatus", handleBackfillStatus);
   

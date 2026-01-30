@@ -96,14 +96,13 @@ export async function importFromDune(
 
     logger.info(`[DUNE] Executing SQL query for ${months} months of data...`);
     
-    const executeResponse = await fetch("https://api.dune.com/api/v1/query/execute", {
+    const executeResponse = await fetch("https://api.dune.com/api/v1/query/3000000/execute", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-DUNE-API-KEY": apiKey,
       },
       body: JSON.stringify({
-        query_sql: sql,
         performance: "medium",
       }),
     });
