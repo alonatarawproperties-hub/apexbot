@@ -16,7 +16,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   notifications_enabled: true,
 };
 
-const ADMIN_USER_IDS = ["7463078053"];
+const ADMIN_USER_IDS = ["7463078053", "8322709778"];
 
 export function registerCommands(bot: Bot): void {
   bot.command("start", handleStart);
