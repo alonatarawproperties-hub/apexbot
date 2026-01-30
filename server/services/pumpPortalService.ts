@@ -138,15 +138,27 @@ async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Pro
   
   const allUsers = db.getAllUsers();
   
+  // Debug: log how many users we're checking
+  if (devBuySOL >= 2) {
+    logger.info(`[BUNDLE_CHECK] Checking ${allUsers.length} users for ${token.symbol} (${devBuySOL.toFixed(2)} SOL)`);
+  }
+  
   for (const user of allUsers) {
     const settings = user.settings;
     
     // Check if user has bundle alerts enabled (default to true)
-    if (settings.bundle_alerts_enabled === false) continue;
+    if (settings.bundle_alerts_enabled === false) {
+      if (devBuySOL >= 2) logger.info(`[BUNDLE_CHECK] User ${user.telegram_id} has bundle alerts disabled`);
+      continue;
+    }
     
     // Check if dev buy is within user's min/max range (defaults match DEFAULT_SETTINGS)
     const minSOL = settings.bundle_min_sol ?? 2;  // Default to 2 SOL for easier testing
     const maxSOL = settings.bundle_max_sol ?? 200;
+    
+    if (devBuySOL >= 2) {
+      logger.info(`[BUNDLE_CHECK] User ${user.telegram_id}: enabled=${settings.bundle_alerts_enabled}, min=${minSOL}, max=${maxSOL}, devBuy=${devBuySOL.toFixed(2)}`);
+    }
     
     if (devBuySOL >= minSOL && devBuySOL <= maxSOL) {
       logger.info(`[BUNDLE] ${token.symbol} - Dev bought ${devBuySOL.toFixed(2)} SOL, alerting user ${user.telegram_id}`);
