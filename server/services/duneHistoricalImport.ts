@@ -1,6 +1,7 @@
 import { logger } from "../utils/logger";
 import * as db from "../db";
-import { isSpamCreator } from "./creatorService";
+import { checkIfSpamLauncher } from "./spamDetection";
+import { getCreatorLaunchCount } from "./creatorLaunchCounter";
 
 interface DuneImportProgress {
   isRunning: boolean;
@@ -30,32 +31,64 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-const DUNE_PUMPFUN_QUERY_ID = "4085161";
+async function fetchGraduatedTokensFromMoralis(cursor?: string): Promise<{ tokens: string[]; nextCursor?: string }> {
+  const apiKey = process.env.MORALIS_API_KEY;
+  if (!apiKey) {
+    throw new Error("MORALIS_API_KEY not set");
+  }
 
-async function getCreatorForToken(tokenMint: string, heliusApiKey: string): Promise<string | null> {
+  const url = `https://solana-gateway.moralis.io/token/mainnet/exchange/pumpfun/graduated?limit=100${cursor ? `&cursor=${cursor}` : ''}`;
+  
+  const response = await fetch(url, {
+    headers: {
+      "Accept": "application/json",
+      "X-API-Key": apiKey
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`Moralis API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const tokens = (data.result || []).map((t: any) => t.tokenAddress);
+  
+  return { tokens, nextCursor: data.cursor };
+}
+
+async function getCreatorFromHelius(tokenMint: string): Promise<string | null> {
+  const apiKey = process.env.HELIUS_API_KEY;
+  if (!apiKey) return null;
+
   try {
-    const response = await fetch(
-      `https://api.helius.xyz/v0/addresses/${tokenMint}/transactions?api-key=${heliusApiKey}&limit=100&type=UNKNOWN`
-    );
+    const url = `https://api.helius.xyz/v0/addresses/${tokenMint}/transactions?api-key=${apiKey}&limit=50`;
+    const response = await fetch(url);
     
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response.status === 429) {
+        await sleep(1000);
+        return getCreatorFromHelius(tokenMint);
+      }
+      return null;
+    }
     
-    const transactions = await response.json();
+    const txs = await response.json();
     
-    for (const tx of transactions) {
-      if (tx.type === "UNKNOWN" && tx.instructions) {
-        for (const ix of tx.instructions) {
-          if (ix.programId === "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P") {
-            return tx.feePayer || null;
-          }
-        }
+    for (const tx of txs) {
+      if (tx.type === "CREATE" || tx.source === "PUMP_FUN") {
+        return tx.feePayer || null;
       }
     }
     
-    return null;
-  } catch {
-    return null;
+    if (txs.length > 0) {
+      const lastTx = txs[txs.length - 1];
+      return lastTx.feePayer || null;
+    }
+  } catch (error: any) {
+    logger.error(`Helius lookup error for ${tokenMint.slice(0, 8)}: ${error.message}`);
   }
+  
+  return null;
 }
 
 export async function importFromDune(
@@ -63,17 +96,6 @@ export async function importFromDune(
   maxCreators: number = 500,
   progressCallback?: (message: string) => Promise<void>
 ): Promise<DuneImportProgress> {
-  const duneApiKey = process.env.DUNE_API_KEY;
-  const heliusApiKey = process.env.HELIUS_API_KEY;
-  
-  if (!duneApiKey) {
-    throw new Error("DUNE_API_KEY not configured");
-  }
-  
-  if (!heliusApiKey) {
-    throw new Error("HELIUS_API_KEY not configured");
-  }
-
   if (importProgress.isRunning) {
     throw new Error("Import already in progress");
   }
@@ -89,159 +111,124 @@ export async function importFromDune(
   };
 
   try {
-    logger.info(`[DUNE IMPORT] Starting historical import using public query`);
+    logger.info(`[DUNE IMPORT] Starting extended historical import (max ${maxCreators} creators)`);
     
     if (progressCallback) {
-      await progressCallback(`Executing Dune query for graduated tokens...\nThis may take 2-5 minutes.`);
+      await progressCallback(`Fetching graduated tokens from Moralis...\nThis fetches more data than regular /import.`);
     }
 
-    const executeResponse = await fetch(`https://api.dune.com/api/v1/query/${DUNE_PUMPFUN_QUERY_ID}/execute`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-DUNE-API-KEY": duneApiKey,
-      },
-      body: JSON.stringify({
-        performance: "medium",
-      }),
-    });
+    const allTokens: string[] = [];
+    let cursor: string | undefined;
+    const maxTokens = maxCreators * 3;
 
-    if (!executeResponse.ok) {
-      const errorText = await executeResponse.text();
-      throw new Error(`Dune execute failed: ${executeResponse.status} - ${errorText}`);
-    }
-
-    const executeResult = await executeResponse.json();
-    const executionId = executeResult.execution_id;
-    
-    if (!executionId) {
-      throw new Error("No execution ID returned from Dune");
-    }
-
-    logger.info(`[DUNE] Query submitted, execution ID: ${executionId}`);
-
-    if (progressCallback) {
-      await progressCallback(`Query submitted. Waiting for results...`);
-    }
-
-    let attempts = 0;
-    const maxAttempts = 60;
-    let rows: any[] = [];
-
-    while (attempts < maxAttempts) {
-      await sleep(5000);
-      
-      const statusResponse = await fetch(`https://api.dune.com/api/v1/execution/${executionId}/results`, {
-        headers: {
-          "X-DUNE-API-KEY": duneApiKey,
-        },
-      });
-
-      if (!statusResponse.ok) {
-        attempts++;
-        continue;
-      }
-
-      const statusResult = await statusResponse.json();
-      
-      if (statusResult.state === "QUERY_STATE_COMPLETED") {
-        rows = statusResult.result?.rows || [];
+    while (allTokens.length < maxTokens) {
+      try {
+        const { tokens, nextCursor } = await fetchGraduatedTokensFromMoralis(cursor);
+        allTokens.push(...tokens);
+        
+        if (!nextCursor || tokens.length === 0) break;
+        cursor = nextCursor;
+        
+        await sleep(200);
+        
+        if (allTokens.length % 200 === 0 && progressCallback) {
+          await progressCallback(`Fetched ${allTokens.length} graduated tokens...`);
+        }
+      } catch (err: any) {
+        logger.error(`Moralis fetch error: ${err.message}`);
         break;
-      } else if (statusResult.state === "QUERY_STATE_FAILED") {
-        throw new Error(`Dune query failed: ${statusResult.error || "Unknown error"}`);
-      }
-
-      attempts++;
-      
-      if (attempts % 6 === 0 && progressCallback) {
-        await progressCallback(`Still waiting for Dune results... (${Math.floor(attempts * 5 / 60)} min elapsed)`);
       }
     }
 
-    if (rows.length === 0 && attempts >= maxAttempts) {
-      throw new Error("Dune query timed out after 5 minutes");
-    }
-
-    logger.info(`[DUNE IMPORT] Found ${rows.length} graduated tokens from Dune`);
+    logger.info(`[DUNE IMPORT] Found ${allTokens.length} graduated tokens`);
+    importProgress.totalFound = allTokens.length;
 
     if (progressCallback) {
-      await progressCallback(`Found ${rows.length} graduated tokens. Looking up creators via Helius...`);
+      await progressCallback(`Found ${allTokens.length} graduated tokens.\nLooking up creators via Helius...`);
     }
 
-    const creatorCounts = new Map<string, { total: number; bonded: number }>();
+    const creatorStats = new Map<string, { bonded: number; total: number }>();
     let processed = 0;
-    const tokensToProcess = rows.slice(0, maxCreators * 2);
-    importProgress.totalFound = tokensToProcess.length;
 
-    for (const row of tokensToProcess) {
-      const tokenMint = row.token_mint || row.mint || row.token_address || row.address;
-      
-      if (!tokenMint) {
+    for (const tokenMint of allTokens) {
+      try {
+        const creator = await getCreatorFromHelius(tokenMint);
+        
+        if (creator) {
+          const existing = creatorStats.get(creator) || { bonded: 0, total: 0 };
+          existing.bonded++;
+          creatorStats.set(creator, existing);
+          importProgress.verified++;
+        }
+        
         processed++;
-        continue;
-      }
+        await sleep(100);
 
-      const creator = await getCreatorForToken(tokenMint, heliusApiKey);
-      
-      if (creator) {
-        const existing = creatorCounts.get(creator) || { total: 0, bonded: 0 };
-        existing.bonded++;
-        existing.total++;
-        creatorCounts.set(creator, existing);
-        importProgress.verified++;
-      }
+        if (processed % 100 === 0 && progressCallback) {
+          await progressCallback(
+            `Processing graduated tokens:\n` +
+            `- Checked: ${processed}/${allTokens.length}\n` +
+            `- Unique creators: ${creatorStats.size}`
+          );
+        }
 
-      processed++;
-      
-      await sleep(100);
-
-      if (processed % 50 === 0 && progressCallback) {
-        await progressCallback(
-          `Processing graduated tokens:\n` +
-          `- Checked: ${processed}/${tokensToProcess.length}\n` +
-          `- Unique creators found: ${creatorCounts.size}`
-        );
+        if (creatorStats.size >= maxCreators) break;
+      } catch (err: any) {
+        importProgress.errors++;
       }
     }
 
-    logger.info(`[DUNE IMPORT] Found ${creatorCounts.size} unique creators`);
+    logger.info(`[DUNE IMPORT] Found ${creatorStats.size} unique creators`);
 
     if (progressCallback) {
-      await progressCallback(`Found ${creatorCounts.size} creators. Filtering spam and importing...`);
+      await progressCallback(`Found ${creatorStats.size} creators.\nVerifying launch counts and filtering spam...`);
     }
 
-    const creatorEntries = Array.from(creatorCounts.entries());
+    let importedCount = 0;
+    const creatorEntries = Array.from(creatorStats.entries());
+
     for (const [creatorAddress, stats] of creatorEntries) {
       try {
-        const spamCheck = isSpamCreator(stats.total, stats.bonded, 0);
+        const existingCreator = db.getCreator(creatorAddress);
+        if (existingCreator) continue;
+
+        const launchCount = await getCreatorLaunchCount(creatorAddress);
+        const totalLaunches = Math.max(launchCount, stats.bonded);
         
-        if (spamCheck) {
+        await sleep(100);
+
+        const spamResult = await checkIfSpamLauncher(creatorAddress, totalLaunches, stats.bonded, 0);
+        
+        if (spamResult.isSpam) {
           importProgress.spam++;
           continue;
         }
 
-        const existingCreator = db.getCreator(creatorAddress);
-        
-        if (!existingCreator) {
-          const isQualified = stats.bonded >= 1;
-          const qualificationReason = isQualified ? `PROVEN: ${stats.bonded} bonded` : "";
+        const isQualified = stats.bonded >= 1;
+        db.upsertCreator({
+          address: creatorAddress,
+          total_launches: totalLaunches,
+          bonded_count: stats.bonded,
+          hits_100k_count: 0,
+          best_mc_ever: 0,
+          is_qualified: isQualified ? 1 : 0,
+          qualification_reason: isQualified ? `PROVEN: ${stats.bonded} bonded` : "",
+          last_updated: new Date().toISOString(),
+        });
 
-          db.upsertCreator({
-            address: creatorAddress,
-            total_launches: stats.total,
-            bonded_count: stats.bonded,
-            hits_100k_count: 0,
-            best_mc_ever: 0,
-            is_qualified: isQualified ? 1 : 0,
-            qualification_reason: qualificationReason,
-            last_updated: new Date().toISOString(),
-          });
+        importProgress.imported++;
+        importedCount++;
 
-          importProgress.imported++;
+        if (importedCount % 10 === 0 && progressCallback) {
+          await progressCallback(
+            `Import progress:\n` +
+            `- Imported: ${importProgress.imported}\n` +
+            `- Spam blocked: ${importProgress.spam}`
+          );
         }
       } catch (err: any) {
-        logger.error(`[DUNE IMPORT] Error processing creator ${creatorAddress}: ${err.message}`);
         importProgress.errors++;
+        logger.error(`[DUNE IMPORT] Error importing ${creatorAddress.slice(0, 8)}: ${err.message}`);
       }
     }
 
