@@ -199,11 +199,22 @@ export function getCreatorCount(): number {
 }
 
 export function getQualifiedCreatorCount(): number {
-  // Exclude spam launchers: >500 launches with <1% success rate
+  // Exclude spam launchers with comprehensive spam detection rules
   const row = db.prepare(`
     SELECT COUNT(*) as count FROM creators 
     WHERE is_qualified = 1 
-    AND NOT (total_launches > 500 AND (bonded_count * 100.0 / total_launches) < 1)
+    AND NOT (
+      -- Rule 1: 20+ launches with 0 bonds = spam
+      (total_launches >= 20 AND bonded_count = 0)
+      -- Rule 2: 10+ launches requires at least 5% bonding rate
+      OR (total_launches >= 10 AND (bonded_count * 100.0 / total_launches) < 5)
+      -- Rule 3: 50+ launches requires at least 3% bonding rate
+      OR (total_launches >= 50 AND (bonded_count * 100.0 / total_launches) < 3)
+      -- Rule 4: 100+ launches requires at least 2% bonding rate
+      OR (total_launches >= 100 AND (bonded_count * 100.0 / total_launches) < 2)
+      -- Rule 5: 500+ launches with less than 1% = definitely spam
+      OR (total_launches >= 500 AND (bonded_count * 100.0 / total_launches) < 1)
+    )
   `).get() as any;
   return row.count;
 }

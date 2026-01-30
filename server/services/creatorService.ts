@@ -71,8 +71,41 @@ export async function processNewToken(
 
 export type CreatorTier = "elite" | "proven" | "none";
 
+/**
+ * Check if a creator is likely a spammer based on launch volume and success rate
+ * Returns true if creator should be filtered out
+ */
+export function isSpamCreator(totalLaunches: number, bondedCount: number, hits100kCount: number): boolean {
+  if (totalLaunches <= 0) return false;
+  
+  const bondingRate = (bondedCount / totalLaunches) * 100;
+  const successCount = bondedCount + hits100kCount;
+  
+  // Rule 1: 20+ launches with 0 bonds = spam
+  if (totalLaunches >= 20 && bondedCount === 0) return true;
+  
+  // Rule 2: 10+ launches requires at least 5% bonding rate
+  if (totalLaunches >= 10 && bondingRate < 5) return true;
+  
+  // Rule 3: 50+ launches requires at least 3% bonding rate (more lenient for high volume)
+  if (totalLaunches >= 50 && bondingRate < 3) return true;
+  
+  // Rule 4: 100+ launches requires at least 2% bonding rate
+  if (totalLaunches >= 100 && bondingRate < 2) return true;
+  
+  // Rule 5: 500+ launches with less than 1% = definitely spam
+  if (totalLaunches >= 500 && bondingRate < 1) return true;
+  
+  return false;
+}
+
 export function getCreatorTier(bondedCount: number, hits100kCount: number, totalLaunches: number, bestMcEver: number): CreatorTier {
   const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
+  
+  // First check if this is a spam creator - they get no tier
+  if (isSpamCreator(totalLaunches, bondedCount, hits100kCount)) {
+    return "none";
+  }
 
   // Elite: 500k+ MC hit OR 3+ bonded with 50%+ rate
   if (bestMcEver >= 500000) return "elite";

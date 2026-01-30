@@ -9,27 +9,51 @@ export async function checkIfSpamLauncher(
   creatorAddress: string,
   bondedCount: number,
   hits100kCount: number,
-  totalLaunchesInDb: number
+  totalLaunches: number
 ): Promise<SpamCheckResult> {
-  const successCount = bondedCount + hits100kCount;
-  
-  if (totalLaunchesInDb < 20) {
+  if (totalLaunches <= 0) {
     return { isSpam: false };
   }
   
-  const successRate = (successCount / totalLaunchesInDb) * 100;
+  const bondingRate = (bondedCount / totalLaunches) * 100;
   
-  if (totalLaunchesInDb >= 20 && successCount === 0) {
+  // Rule 1: 20+ launches with 0 bonds = spam
+  if (totalLaunches >= 20 && bondedCount === 0) {
     return {
       isSpam: true,
-      reason: `No successes in ${totalLaunchesInDb} launches`
+      reason: `0 bonds in ${totalLaunches} launches`
     };
   }
   
-  if (totalLaunchesInDb >= 25 && successCount <= 2 && successRate < 10) {
+  // Rule 2: 10+ launches requires at least 5% bonding rate
+  if (totalLaunches >= 10 && bondingRate < 5) {
     return {
       isSpam: true,
-      reason: `Spam launcher: only ${successCount} successes in ${totalLaunchesInDb} launches (${successRate.toFixed(1)}%)`
+      reason: `Only ${bondingRate.toFixed(1)}% bonding rate (${bondedCount}/${totalLaunches})`
+    };
+  }
+  
+  // Rule 3: 50+ launches requires at least 3% bonding rate
+  if (totalLaunches >= 50 && bondingRate < 3) {
+    return {
+      isSpam: true,
+      reason: `High volume spam: ${bondingRate.toFixed(1)}% rate (${bondedCount}/${totalLaunches})`
+    };
+  }
+  
+  // Rule 4: 100+ launches requires at least 2% bonding rate
+  if (totalLaunches >= 100 && bondingRate < 2) {
+    return {
+      isSpam: true,
+      reason: `Mass spam: ${bondingRate.toFixed(1)}% rate (${bondedCount}/${totalLaunches})`
+    };
+  }
+  
+  // Rule 5: 500+ launches with less than 1% = definitely spam
+  if (totalLaunches >= 500 && bondingRate < 1) {
+    return {
+      isSpam: true,
+      reason: `Extreme spam: ${bondingRate.toFixed(1)}% rate (${bondedCount}/${totalLaunches})`
     };
   }
   
