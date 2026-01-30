@@ -6,7 +6,7 @@ import { isValidSolanaAddress, formatAddress, formatMarketCap, formatPercentage,
 import { getStartKeyboard, getHelpKeyboard, getSettingsKeyboard, getBundleSettingsKeyboard, getStatsKeyboard, getWatchlistKeyboard, getBackToWatchlistKeyboard, getTokensKeyboard } from "./keyboards";
 import { importHistoricalCreators } from "../services/historicalImport";
 import { runCreatorBackfill, getBackfillProgress } from "../services/heliusBackfill";
-import { registerSniperCommands, handleSniperCallback, handlePrivateKeyImport, hasPendingInput, handleCustomInput } from "./sniperCommands";
+import { registerSniperCommands, handleSniperCallback, handlePrivateKeyImport, hasPendingInput, handleCustomInput, setBundlePendingInput } from "./sniperCommands";
 import type { UserSettings } from "@shared/schema";
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -670,11 +670,23 @@ async function handleCallback(ctx: Context): Promise<void> {
         break;
         
       case "bundle_min":
-        await handleBundleSettingChange(ctx, user, "bundle_min_sol", value);
+        if (value === "custom") {
+          setBundlePendingInput(userId, "bundle_min");
+          await ctx.answerCallbackQuery();
+          await ctx.reply("Enter your custom Min SOL value (e.g., 15):");
+        } else {
+          await handleBundleSettingChange(ctx, user, "bundle_min_sol", value);
+        }
         break;
         
       case "bundle_max":
-        await handleBundleSettingChange(ctx, user, "bundle_max_sol", value);
+        if (value === "custom") {
+          setBundlePendingInput(userId, "bundle_max");
+          await ctx.answerCallbackQuery();
+          await ctx.reply("Enter your custom Max SOL value (e.g., 100):");
+        } else {
+          await handleBundleSettingChange(ctx, user, "bundle_max_sol", value);
+        }
         break;
         
       case "bundle_buy":
@@ -779,7 +791,15 @@ async function handleBundleSettingChange(
   direction: string
 ): Promise<void> {
   const userId = ctx.from!.id.toString();
-  const settings = { ...user.settings };
+  
+  // Fetch fresh user settings from DB to avoid stale data
+  const freshUser = db.getUser(userId);
+  if (!freshUser) {
+    await ctx.answerCallbackQuery("Error: User not found");
+    return;
+  }
+  
+  const settings = { ...freshUser.settings };
   const defaultValue = field === "bundle_buy_amount_sol" ? 0.1 : (field === "bundle_max_sol" ? 200 : 2);
   const current = settings[field] ?? defaultValue;
   
@@ -801,6 +821,8 @@ async function handleBundleSettingChange(
   
   (settings[field] as number) = newValue;
   db.updateUserSettings(userId, settings);
+  
+  logger.info(`[BUNDLE_SETTINGS] User ${userId}: ${field} changed from ${current} to ${newValue}`);
   
   await ctx.editMessageReplyMarkup({ reply_markup: getBundleSettingsKeyboard(settings) });
   await ctx.answerCallbackQuery(`Updated to ${newValue}`);

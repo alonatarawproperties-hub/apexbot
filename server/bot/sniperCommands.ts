@@ -18,7 +18,7 @@ import type { SniperSettings, Position } from "@shared/schema";
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
 
 // Conversation state for custom input
-type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "buy" | "slip" | "priority";
+type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max";
 interface PendingInput {
   type: InputType;
   tpIndex?: number; // For editing specific TP bracket
@@ -27,6 +27,18 @@ const pendingInputs = new Map<string, PendingInput>();
 
 export function hasPendingInput(userId: string): boolean {
   return pendingInputs.has(userId);
+}
+
+export function setBundlePendingInput(userId: string, type: "bundle_min" | "bundle_max"): void {
+  pendingInputs.set(userId, { type });
+}
+
+export function clearPendingInput(userId: string): void {
+  pendingInputs.delete(userId);
+}
+
+export function getPendingInputType(userId: string): InputType | undefined {
+  return pendingInputs.get(userId)?.type;
 }
 
 export async function handleCustomInput(ctx: Context, text: string): Promise<boolean> {
@@ -122,6 +134,32 @@ export async function handleCustomInput(ctx: Context, text: string): Promise<boo
         }
       }
       break;
+    case "bundle_min":
+      if (value < 0 || value > 1000) {
+        await ctx.reply("Min SOL must be between 0 and 1000.");
+        return true;
+      }
+      const userForMin = db.getUser(userId);
+      if (userForMin) {
+        const newSettings = { ...userForMin.settings, bundle_min_sol: value };
+        db.updateUserSettings(userId, newSettings);
+        logger.info(`[BUNDLE_SETTINGS] User ${userId} set bundle_min_sol to ${value}`);
+        await ctx.reply(`Bundle min SOL set to ${value}`);
+      }
+      break;
+    case "bundle_max":
+      if (value < 0 || value > 10000) {
+        await ctx.reply("Max SOL must be between 0 and 10000.");
+        return true;
+      }
+      const userForMax = db.getUser(userId);
+      if (userForMax) {
+        const newSettings = { ...userForMax.settings, bundle_max_sol: value };
+        db.updateUserSettings(userId, newSettings);
+        logger.info(`[BUNDLE_SETTINGS] User ${userId} set bundle_max_sol to ${value}`);
+        await ctx.reply(`Bundle max SOL set to ${value}`);
+      }
+      break;
   }
   
   return true;
@@ -151,6 +189,11 @@ async function handleSniper(ctx: Context): Promise<void> {
       notifications_enabled: true,
       min_success_rate: 5,
       max_launches: 500,
+      bundle_alerts_enabled: true,
+      bundle_min_sol: 2,
+      bundle_max_sol: 200,
+      bundle_auto_snipe: false,
+      bundle_buy_amount_sol: 0.1,
     },
     alerts_today: 0,
     last_alert_reset: null,
@@ -773,6 +816,8 @@ async function promptCustomInput(ctx: Context, userId: string, inputType: InputT
     priority: "Enter priority fee in lamports (e.g., 50000):",
     tp_pct: "Enter TP percentage to sell (1-100):",
     tp_mult: "Enter TP multiplier target (e.g., 3 for 3x):",
+    bundle_min: "Enter your custom Min SOL value (e.g., 15):",
+    bundle_max: "Enter your custom Max SOL value (e.g., 100):",
   };
   
   await ctx.answerCallbackQuery();

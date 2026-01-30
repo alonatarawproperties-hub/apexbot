@@ -81,12 +81,12 @@ export function getBundleSettingsKeyboard(settings: UserSettings) {
       ],
       [
         { text: "−", callback_data: "apex:bundle_min:dec" },
-        { text: `Min SOL: ${minSOL}`, callback_data: "apex:noop" },
+        { text: `Min SOL: ${minSOL}`, callback_data: "apex:bundle_min:custom" },
         { text: "+", callback_data: "apex:bundle_min:inc" },
       ],
       [
         { text: "−", callback_data: "apex:bundle_max:dec" },
-        { text: `Max SOL: ${maxSOL}`, callback_data: "apex:noop" },
+        { text: `Max SOL: ${maxSOL}`, callback_data: "apex:bundle_max:custom" },
         { text: "+", callback_data: "apex:bundle_max:inc" },
       ],
       [
