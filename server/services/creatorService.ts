@@ -107,13 +107,32 @@ export function getCreatorTier(bondedCount: number, hits100kCount: number, total
     return "none";
   }
 
-  // Elite: 500k+ MC hit OR 3+ bonded with 50%+ rate
-  if (bestMcEver >= 500000) return "elite";
+  // CRITICAL: Require minimum bonding standards for any tier
+  // Anyone with 5+ launches needs at least 10% bonding rate
+  if (totalLaunches >= 5 && bondingRate < 0.1) {
+    return "none";
+  }
+  
+  // Anyone with 10+ launches needs at least 2 bonded tokens
+  if (totalLaunches >= 10 && bondedCount < 2) {
+    return "none";
+  }
+  
+  // Anyone with 20+ launches needs at least 3 bonded tokens
+  if (totalLaunches >= 20 && bondedCount < 3) {
+    return "none";
+  }
+
+  // Elite: 500k+ MC AND at least 2 bonded tokens OR 3+ bonded with 50%+ rate
+  if (bestMcEver >= 500000 && bondedCount >= 2) return "elite";
   if (bondedCount >= 3 && bondingRate >= 0.5) return "elite";
 
-  // Proven: 1+ token hit 100k+ OR 2+ bonded tokens
-  if (hits100kCount >= 1) return "proven";
-  if (bondedCount >= 2) return "proven";
+  // Proven: 2+ tokens hit 100k+ OR 2+ bonded tokens with good rate
+  if (hits100kCount >= 2) return "proven";
+  if (bondedCount >= 2 && bondingRate >= 0.2) return "proven";
+  
+  // Single 100k hit only qualifies if bonding rate is good
+  if (hits100kCount >= 1 && bondingRate >= 0.25) return "proven";
 
   return "none";
 }
