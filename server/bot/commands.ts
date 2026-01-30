@@ -65,18 +65,53 @@ async function handleImport(ctx: Context): Promise<void> {
     return;
   }
 
-  await ctx.reply("Starting historical creator import... This may take a few minutes.");
+  const { getImportProgress, importFromHelius } = await import("../services/heliusHistoricalImport");
+  
+  const currentProgress = getImportProgress();
+  if (currentProgress.isRunning) {
+    await ctx.reply(
+      `Import already running:\n` +
+      `- Found: ${currentProgress.totalFound}\n` +
+      `- Verified: ${currentProgress.verified}\n` +
+      `- Imported: ${currentProgress.imported}\n` +
+      `- Spam blocked: ${currentProgress.spam}`
+    );
+    return;
+  }
+
+  await ctx.reply("Starting Helius historical import... This may take 5-10 minutes. I'll update you on progress.");
+  
+  const updateInterval = setInterval(async () => {
+    const progress = getImportProgress();
+    if (!progress.isRunning) {
+      clearInterval(updateInterval);
+      return;
+    }
+    try {
+      await ctx.reply(
+        `Import progress:\n` +
+        `- Found: ${progress.totalFound} creators\n` +
+        `- Verified: ${progress.verified}\n` +
+        `- Imported: ${progress.imported}\n` +
+        `- Spam: ${progress.spam}`
+      );
+    } catch {}
+  }, 60000);
   
   try {
-    const stats = await importHistoricalCreators(500);
+    const stats = await importFromHelius(200);
+    clearInterval(updateInterval);
     
     await ctx.reply(
       `Historical import complete:\n` +
-      `- Imported: ${stats.imported} creators\n` +
-      `- Skipped: ${stats.skipped}\n` +
-      `- Spam filtered: ${stats.spam}`
+      `- Creators found: ${stats.totalFound}\n` +
+      `- Verified: ${stats.verified}\n` +
+      `- Imported: ${stats.imported}\n` +
+      `- Spam blocked: ${stats.spam}\n` +
+      `- Errors: ${stats.errors}`
     );
   } catch (error: any) {
+    clearInterval(updateInterval);
     await ctx.reply(`Import failed: ${error.message}`);
     logger.error("Historical import failed:", error.message);
   }
