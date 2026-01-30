@@ -324,6 +324,11 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
       case "set_tp_mult":
         await setTPBracketMult(ctx, userId, value);
         break;
+      case "custom_tp_pct":
+        pendingInputs.set(userId, { type: "tp_pct", tpIndex: parseInt(value) });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter your custom TP percentage (1-100):");
+        break;
       default:
         if (action.startsWith("set_")) {
           await handleSettingUpdate(ctx, userId, action, value);
@@ -847,6 +852,9 @@ This sells ${formatMarkdownValue(bracket.percentage)}% of your position when pri
         .text("20%", `sniper:set_tp_pct:${bracketIndex}:20`)
         .text("30%", `sniper:set_tp_pct:${bracketIndex}:30`)
         .text("50%", `sniper:set_tp_pct:${bracketIndex}:50`)
+        .row()
+        .text("100%", `sniper:set_tp_pct:${bracketIndex}:100`)
+        .text("Custom %", `sniper:custom_tp_pct:${bracketIndex}`)
         .row()
         .text("2x", `sniper:set_tp_mult:${bracketIndex}:2`)
         .text("3x", `sniper:set_tp_mult:${bracketIndex}:3`)
