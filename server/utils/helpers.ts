@@ -35,6 +35,10 @@ export function getPumpFunUrl(tokenAddress: string): string {
   return `https://pump.fun/${tokenAddress}`;
 }
 
+export function getPumpFunProfileUrl(creatorAddress: string): string {
+  return `https://pump.fun/profile/${creatorAddress}`;
+}
+
 export function getDexScreenerUrl(tokenAddress: string): string {
   return `https://dexscreener.com/solana/${tokenAddress}`;
 }

@@ -1,7 +1,7 @@
 import { Bot } from "grammy";
 import * as db from "../db";
 import { logger } from "../utils/logger";
-import { formatAddress, formatMarketCap, formatPercentage, getPumpFunUrl, getDexScreenerUrl, escapeMarkdown } from "../utils/helpers";
+import { formatAddress, formatMarketCap, formatPercentage, getPumpFunUrl, getPumpFunProfileUrl, getDexScreenerUrl, escapeMarkdown } from "../utils/helpers";
 import type { Creator, Token, User } from "@shared/schema";
 import { checkQualification, getCreatorTier } from "./creatorService";
 import { checkIfSpamLauncher } from "./spamDetection";
@@ -89,12 +89,6 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
 function formatAlertMessage(creator: Creator, token: Token, isWatched: boolean): string {
   const tokenName = token.name || "Unknown";
   const tokenSymbol = token.symbol || "???";
-  const bondedRate = creator.total_launches > 0 
-    ? formatPercentage(creator.bonded_count, creator.total_launches) 
-    : "0%";
-  const hits100kRate = creator.total_launches > 0 
-    ? formatPercentage(creator.hits_100k_count, creator.total_launches) 
-    : "0%";
   
   if (isWatched) {
     return `⭐ *APEX \\- WATCHED CREATOR* ⭐
@@ -102,15 +96,14 @@ function formatAlertMessage(creator: Creator, token: Token, isWatched: boolean):
 *Token:* $${escapeMarkdown(tokenSymbol)} (${escapeMarkdown(tokenName)})
 \`${token.address}\`
 
-*Creator:* \`${creator.address}\`
+*Creator:* [${formatAddress(creator.address, 6)}](${getPumpFunProfileUrl(creator.address)})
 
-📊 *Creator Stats:*
-├ Launches: ${creator.total_launches}
-├ Bonded: ${creator.bonded_count} (${bondedRate})
-├ 100k\\+ MC: ${creator.hits_100k_count} (${hits100kRate})
+📊 *Tracked Stats:*
+├ Bonded: ${creator.bonded_count}
+├ 100k\\+ MC: ${creator.hits_100k_count}
 └ Best: ${formatMarketCap(creator.best_mc_ever)}
 
-🔗 [PumpFun](${getPumpFunUrl(token.address)}) • [DexScreener](${getDexScreenerUrl(token.address)})`;
+🔗 [PumpFun](${getPumpFunUrl(token.address)}) • [DexScreener](${getDexScreenerUrl(token.address)}) • [Creator](${getPumpFunProfileUrl(creator.address)})`;
   }
   
   const tier = getCreatorTier(creator.bonded_count, creator.hits_100k_count, creator.total_launches, creator.best_mc_ever);
@@ -123,15 +116,14 @@ function formatAlertMessage(creator: Creator, token: Token, isWatched: boolean):
 *Token:* $${escapeMarkdown(tokenSymbol)} (${escapeMarkdown(tokenName)})
 \`${token.address}\`
 
-*Creator:* \`${creator.address}\`
+*Creator:* [${formatAddress(creator.address, 6)}](${getPumpFunProfileUrl(creator.address)})
 
-📊 *Creator Stats:*
-├ Launches: ${creator.total_launches}
-├ Bonded: ${creator.bonded_count} (${bondedRate})
-├ 100k\\+ MC: ${creator.hits_100k_count} (${hits100kRate})
+📊 *Tracked Stats:*
+├ Bonded: ${creator.bonded_count}
+├ 100k\\+ MC: ${creator.hits_100k_count}
 └ Best: ${formatMarketCap(creator.best_mc_ever)}
 
-🔗 [PumpFun](${getPumpFunUrl(token.address)}) • [DexScreener](${getDexScreenerUrl(token.address)})`;
+🔗 [PumpFun](${getPumpFunUrl(token.address)}) • [DexScreener](${getDexScreenerUrl(token.address)}) • [Creator](${getPumpFunProfileUrl(creator.address)})`;
 }
 
 function getAlertKeyboard(creatorAddress: string, tokenAddress: string) {
@@ -139,7 +131,7 @@ function getAlertKeyboard(creatorAddress: string, tokenAddress: string) {
     inline_keyboard: [
       [
         { text: "⭐ Watch Creator", callback_data: `apex:watch:${creatorAddress}` },
-        { text: "📊 Full Stats", callback_data: `apex:stats:${creatorAddress}` },
+        { text: "👤 Creator Profile", url: getPumpFunProfileUrl(creatorAddress) },
       ],
       [
         { text: "🔗 PumpFun", url: getPumpFunUrl(tokenAddress) },
