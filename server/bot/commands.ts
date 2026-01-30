@@ -32,6 +32,7 @@ export function registerCommands(bot: Bot): void {
   bot.command("settings", handleSettings);
   bot.command("recent", handleRecent);
   bot.command("import", handleImport);
+  bot.command("importflipside", handleFlipsideImport);
   bot.command("backfill", handleBackfill);
   bot.command("backfillstatus", handleBackfillStatus);
   
@@ -114,6 +115,77 @@ async function handleImport(ctx: Context): Promise<void> {
     clearInterval(updateInterval);
     await ctx.reply(`Import failed: ${error.message}`);
     logger.error("Historical import failed:", error.message);
+  }
+}
+
+async function handleFlipsideImport(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id.toString();
+  logger.info(`Flipside import command from user: ${userId}`);
+  
+  if (!userId || !ADMIN_USER_IDS.includes(userId)) {
+    await ctx.reply(`This command is only available to admins. Your ID: ${userId}`);
+    return;
+  }
+
+  if (!process.env.FLIPSIDE_API_KEY) {
+    await ctx.reply(
+      `FLIPSIDE_API_KEY not configured.\n\n` +
+      `To use Flipside for 3-month historical data:\n` +
+      `1. Get a free API key at flipsidecrypto.xyz\n` +
+      `2. Add FLIPSIDE_API_KEY to your secrets`
+    );
+    return;
+  }
+
+  const { getFlipsideImportProgress, importFromFlipside } = await import("../services/flipsideHistoricalImport");
+  
+  const currentProgress = getFlipsideImportProgress();
+  if (currentProgress.isRunning) {
+    await ctx.reply(
+      `Flipside import already running:\n` +
+      `- Found: ${currentProgress.totalFound}\n` +
+      `- Verified: ${currentProgress.verified}\n` +
+      `- Imported: ${currentProgress.imported}\n` +
+      `- Spam blocked: ${currentProgress.spam}`
+    );
+    return;
+  }
+
+  await ctx.reply("Starting Flipside 3-month historical import... This may take 5-10 minutes. I'll update you on progress.");
+  
+  const updateInterval = setInterval(async () => {
+    const progress = getFlipsideImportProgress();
+    if (!progress.isRunning) {
+      clearInterval(updateInterval);
+      return;
+    }
+    try {
+      await ctx.reply(
+        `Flipside import progress:\n` +
+        `- Found: ${progress.totalFound} creators\n` +
+        `- Verified: ${progress.verified}\n` +
+        `- Imported: ${progress.imported}\n` +
+        `- Spam: ${progress.spam}`
+      );
+    } catch {}
+  }, 60000);
+  
+  try {
+    const stats = await importFromFlipside(3, 500);
+    clearInterval(updateInterval);
+    
+    await ctx.reply(
+      `Flipside 3-month import complete:\n` +
+      `- Creators found: ${stats.totalFound}\n` +
+      `- Verified: ${stats.verified}\n` +
+      `- Imported: ${stats.imported}\n` +
+      `- Spam blocked: ${stats.spam}\n` +
+      `- Errors: ${stats.errors}`
+    );
+  } catch (error: any) {
+    clearInterval(updateInterval);
+    await ctx.reply(`Flipside import failed: ${error.message}`);
+    logger.error("Flipside import failed:", error.message);
   }
 }
 
