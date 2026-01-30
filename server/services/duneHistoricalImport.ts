@@ -1,4 +1,3 @@
-import { DuneClient } from "@duneanalytics/client-sdk";
 import { logger } from "../utils/logger";
 import * as db from "../db";
 import { isSpamCreator } from "./creatorService";
@@ -27,6 +26,10 @@ export function getDuneImportProgress(): DuneImportProgress {
   return { ...importProgress };
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export async function importFromDune(
   months: number = 3,
   maxCreators: number = 500,
@@ -52,8 +55,6 @@ export async function importFromDune(
     startTime: Date.now(),
   };
 
-  const client = new DuneClient(apiKey);
-
   try {
     logger.info(`[DUNE IMPORT] Starting ${months}-month historical import`);
     
@@ -62,48 +63,108 @@ export async function importFromDune(
     }
 
     const sql = `
-      SELECT 
-        creator_address,
-        COUNT(*) as total_launches,
-        COUNT(CASE WHEN graduated = true THEN 1 END) as bonded_count,
-        MAX(market_cap_usd) as best_mc
-      FROM (
+      WITH pumpfun_creates AS (
         SELECT 
-          account_arguments[2] as creator_address,
+          tx_signer as creator_address,
           account_arguments[1] as token_mint,
-          tx_id,
-          block_time,
-          CASE 
-            WHEN EXISTS (
-              SELECT 1 FROM solana.instructions w 
-              WHERE w.executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
-              AND w.inner_instruction_index = 0
-              AND array_contains(w.account_arguments, i.account_arguments[1])
-            ) THEN true 
-            ELSE false 
-          END as graduated,
-          0 as market_cap_usd
-        FROM solana.instructions i
+          block_time
+        FROM solana.instruction_calls
         WHERE executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
         AND block_time >= NOW() - INTERVAL '${months}' MONTH
-      ) tokens
-      WHERE graduated = true
-      GROUP BY creator_address
-      HAVING COUNT(CASE WHEN graduated = true THEN 1 END) >= 1
+        AND tx_success = true
+      ),
+      pumpfun_withdraws AS (
+        SELECT DISTINCT
+          account_arguments[1] as token_mint
+        FROM solana.instruction_calls
+        WHERE executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
+        AND inner_executing_account = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P'
+        AND block_time >= NOW() - INTERVAL '${months}' MONTH
+        AND tx_success = true
+      )
+      SELECT 
+        c.creator_address,
+        COUNT(DISTINCT c.token_mint) as total_launches,
+        COUNT(DISTINCT w.token_mint) as bonded_count
+      FROM pumpfun_creates c
+      LEFT JOIN pumpfun_withdraws w ON c.token_mint = w.token_mint
+      GROUP BY c.creator_address
+      HAVING COUNT(DISTINCT w.token_mint) >= 1
       ORDER BY bonded_count DESC
       LIMIT ${maxCreators}
     `;
 
-    logger.info(`[DUNE] Executing query for ${months} months of data...`);
+    logger.info(`[DUNE] Executing SQL query for ${months} months of data...`);
     
-    const result = await client.runQuery({
-      queryId: 0,
-      query_parameters: [],
+    const executeResponse = await fetch("https://api.dune.com/api/v1/query/execute", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-DUNE-API-KEY": apiKey,
+      },
+      body: JSON.stringify({
+        query_sql: sql,
+        performance: "medium",
+      }),
     });
 
-    const rows = result.result?.rows || [];
-    importProgress.totalFound = rows.length;
+    if (!executeResponse.ok) {
+      const errorText = await executeResponse.text();
+      throw new Error(`Dune execute failed: ${executeResponse.status} - ${errorText}`);
+    }
+
+    const executeResult = await executeResponse.json();
+    const executionId = executeResult.execution_id;
     
+    if (!executionId) {
+      throw new Error("No execution ID returned from Dune");
+    }
+
+    logger.info(`[DUNE] Query submitted, execution ID: ${executionId}`);
+
+    if (progressCallback) {
+      await progressCallback(`Query submitted to Dune. Waiting for results...`);
+    }
+
+    let attempts = 0;
+    const maxAttempts = 60;
+    let rows: any[] = [];
+
+    while (attempts < maxAttempts) {
+      await sleep(5000);
+      
+      const statusResponse = await fetch(`https://api.dune.com/api/v1/execution/${executionId}/results`, {
+        headers: {
+          "X-DUNE-API-KEY": apiKey,
+        },
+      });
+
+      if (!statusResponse.ok) {
+        attempts++;
+        continue;
+      }
+
+      const statusResult = await statusResponse.json();
+      
+      if (statusResult.state === "QUERY_STATE_COMPLETED") {
+        rows = statusResult.result?.rows || [];
+        break;
+      } else if (statusResult.state === "QUERY_STATE_FAILED") {
+        throw new Error(`Dune query failed: ${statusResult.error || "Unknown error"}`);
+      }
+
+      attempts++;
+      
+      if (attempts % 6 === 0 && progressCallback) {
+        await progressCallback(`Still waiting for Dune results... (${Math.floor(attempts * 5 / 60)} min elapsed)`);
+      }
+    }
+
+    if (rows.length === 0 && attempts >= maxAttempts) {
+      throw new Error("Dune query timed out after 5 minutes");
+    }
+
+    importProgress.totalFound = rows.length;
     logger.info(`[DUNE IMPORT] Found ${rows.length} creators with graduated tokens`);
 
     if (progressCallback) {
@@ -118,7 +179,6 @@ export async function importFromDune(
         const creatorAddress = String(row.creator_address || "");
         const totalLaunches = parseInt(String(row.total_launches)) || 0;
         const bondedCount = parseInt(String(row.bonded_count)) || 0;
-        const bestMc = parseFloat(String(row.best_mc)) || 0;
 
         if (!creatorAddress) {
           processed++;
@@ -145,8 +205,8 @@ export async function importFromDune(
             address: creatorAddress,
             total_launches: totalLaunches,
             bonded_count: bondedCount,
-            hits_100k_count: bestMc >= 100000 ? 1 : 0,
-            best_mc_ever: bestMc,
+            hits_100k_count: 0,
+            best_mc_ever: 0,
             is_qualified: isQualified ? 1 : 0,
             qualification_reason: qualificationReason,
             last_updated: new Date().toISOString(),
