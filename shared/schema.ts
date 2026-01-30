@@ -113,6 +113,10 @@ export const botStatusSchema = z.object({
   totalTokens: z.number(),
   qualifiedCreators: z.number(),
   alertsSentToday: z.number(),
+  alertStats: z.object({
+    delivered: z.number(),
+    failed: z.number(),
+  }).optional(),
   lastWebhookReceived: z.string().nullable(),
   uptime: z.number(),
 });

@@ -173,8 +173,9 @@ export default function Dashboard() {
                 icon={Coins}
               />
               <StatCard
-                title="Alerts Today"
+                title="Alerts Sent"
                 value={status?.alertsSentToday ?? 0}
+                description={status?.alertStats?.failed ? `${status.alertStats.failed} failed` : undefined}
                 icon={Bell}
               />
             </>

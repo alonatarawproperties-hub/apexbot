@@ -392,8 +392,15 @@ export function getRecentAlerts(userId: string, limit: number = 10): AlertLog[] 
 
 export function getAlertsSentToday(): number {
   const today = new Date().toISOString().split("T")[0];
-  const row = db.prepare("SELECT COUNT(*) as count FROM alerts_log WHERE DATE(sent_at) = ?").get(today) as any;
+  const row = db.prepare("SELECT COUNT(*) as count FROM alerts_log WHERE DATE(sent_at) = ? AND delivered = 1").get(today) as any;
   return row.count;
+}
+
+export function getAlertAttemptsTodayStats(): { delivered: number; failed: number } {
+  const today = new Date().toISOString().split("T")[0];
+  const delivered = db.prepare("SELECT COUNT(*) as count FROM alerts_log WHERE DATE(sent_at) = ? AND delivered = 1").get(today) as any;
+  const failed = db.prepare("SELECT COUNT(*) as count FROM alerts_log WHERE DATE(sent_at) = ? AND delivered = 0").get(today) as any;
+  return { delivered: delivered.count, failed: failed.count };
 }
 
 export function getDatabase(): Database.Database {
