@@ -10,6 +10,12 @@ export const userSettingsSchema = z.object({
   notifications_enabled: z.boolean().default(true),
   min_success_rate: z.number().default(1),
   max_launches: z.number().default(500),
+  // Bundle detection settings
+  bundle_alerts_enabled: z.boolean().default(false),
+  bundle_min_sol: z.number().default(40),
+  bundle_max_sol: z.number().default(200),
+  bundle_auto_snipe: z.boolean().default(false),
+  bundle_buy_amount_sol: z.number().default(0.1),
 });
 
 export type UserSettings = z.infer<typeof userSettingsSchema>;

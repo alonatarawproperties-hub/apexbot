@@ -18,6 +18,12 @@ const DEFAULT_SETTINGS: UserSettings = {
   notifications_enabled: true,
   min_success_rate: 5,
   max_launches: 500,
+  // Bundle detection defaults
+  bundle_alerts_enabled: false,
+  bundle_min_sol: 40,
+  bundle_max_sol: 200,
+  bundle_auto_snipe: false,
+  bundle_buy_amount_sol: 0.1,
 };
 
 const ADMIN_USER_IDS = ["7463078053", "8322709778"];
