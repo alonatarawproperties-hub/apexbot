@@ -32,6 +32,7 @@ export function registerCommands(bot: Bot): void {
   bot.command("settings", handleSettings);
   bot.command("recent", handleRecent);
   bot.command("import", handleImport);
+  bot.command("importdune", handleDuneImport);
   bot.command("backfill", handleBackfill);
   bot.command("backfillstatus", handleBackfillStatus);
   
@@ -117,7 +118,7 @@ async function handleImport(ctx: Context): Promise<void> {
   }
 }
 
-async function handleFlipsideImport(ctx: Context): Promise<void> {
+async function handleDuneImport(ctx: Context): Promise<void> {
   const userId = ctx.from?.id.toString();
   logger.info(`Dune import command from user: ${userId}`);
   
