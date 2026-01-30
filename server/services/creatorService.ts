@@ -102,37 +102,48 @@ export function isSpamCreator(totalLaunches: number, bondedCount: number, hits10
 export function getCreatorTier(bondedCount: number, hits100kCount: number, totalLaunches: number, bestMcEver: number): CreatorTier {
   const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
   
+  // ABSOLUTE MINIMUM REQUIREMENT: Must have at least 2 bonded tokens
+  // This is the #1 rule to prevent spam - single lucky hits don't qualify
+  if (bondedCount < 2) {
+    return "none";
+  }
+  
   // First check if this is a spam creator - they get no tier
   if (isSpamCreator(totalLaunches, bondedCount, hits100kCount)) {
     return "none";
   }
 
-  // CRITICAL: Require minimum bonding standards for any tier
-  // Anyone with 5+ launches needs at least 10% bonding rate
-  if (totalLaunches >= 5 && bondingRate < 0.1) {
+  // STRICT BONDING RATE REQUIREMENTS:
+  // 5+ launches needs at least 20% bonding rate
+  if (totalLaunches >= 5 && bondingRate < 0.2) {
     return "none";
   }
   
-  // Anyone with 10+ launches needs at least 2 bonded tokens
-  if (totalLaunches >= 10 && bondedCount < 2) {
+  // 10+ launches needs at least 15% bonding rate AND 2+ bonded
+  if (totalLaunches >= 10 && (bondingRate < 0.15 || bondedCount < 2)) {
     return "none";
   }
   
-  // Anyone with 20+ launches needs at least 3 bonded tokens
-  if (totalLaunches >= 20 && bondedCount < 3) {
+  // 15+ launches needs at least 3 bonded tokens
+  if (totalLaunches >= 15 && bondedCount < 3) {
+    return "none";
+  }
+  
+  // 20+ launches needs at least 4 bonded tokens
+  if (totalLaunches >= 20 && bondedCount < 4) {
     return "none";
   }
 
-  // Elite: 500k+ MC AND at least 2 bonded tokens OR 3+ bonded with 50%+ rate
-  if (bestMcEver >= 500000 && bondedCount >= 2) return "elite";
-  if (bondedCount >= 3 && bondingRate >= 0.5) return "elite";
+  // Elite: 500k+ MC AND at least 3 bonded tokens OR 4+ bonded with 40%+ rate
+  if (bestMcEver >= 500000 && bondedCount >= 3) return "elite";
+  if (bondedCount >= 4 && bondingRate >= 0.4) return "elite";
 
-  // Proven: 2+ tokens hit 100k+ OR 2+ bonded tokens with good rate
-  if (hits100kCount >= 2) return "proven";
-  if (bondedCount >= 2 && bondingRate >= 0.2) return "proven";
+  // Proven: 2+ tokens hit 100k+ with good rate OR 3+ bonded tokens with 25%+ rate
+  if (hits100kCount >= 2 && bondingRate >= 0.2) return "proven";
+  if (bondedCount >= 3 && bondingRate >= 0.25) return "proven";
   
-  // Single 100k hit only qualifies if bonding rate is good
-  if (hits100kCount >= 1 && bondingRate >= 0.25) return "proven";
+  // 2 bonded tokens qualifies only with very high rate (33%+)
+  if (bondedCount >= 2 && bondingRate >= 0.33) return "proven";
 
   return "none";
 }

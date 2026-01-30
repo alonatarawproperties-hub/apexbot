@@ -5,7 +5,7 @@ import { formatAddress, formatMarketCap, formatPercentage, getPumpFunUrl, getPum
 import type { Creator, Token, User } from "@shared/schema";
 import { checkQualification, getCreatorTier } from "./creatorService";
 import { checkIfSpamLauncher } from "./spamDetection";
-import { getCreatorLaunchCount } from "./bitqueryService";
+import { verifyCreatorNotSpam } from "./pumpFunProfileService";
 import { snipeToken } from "./sniperService";
 
 let botInstance: Bot | null = null;
@@ -20,33 +20,32 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
     return;
   }
   
-  // Try to get accurate launch count from Bitquery before sending alert
-  let actualLaunches = creator.total_launches;
-  try {
-    const bitqueryCount = await getCreatorLaunchCount(creator.address);
-    if (bitqueryCount > 0 && bitqueryCount > creator.total_launches) {
-      actualLaunches = bitqueryCount;
-      // Update database with accurate count
-      db.upsertCreator({
-        ...creator,
-        total_launches: actualLaunches,
-      });
-      logger.info(`Updated ${creator.address.slice(0, 8)} launch count: ${creator.total_launches} -> ${actualLaunches}`);
-    }
-  } catch (error: any) {
-    logger.warn(`Could not fetch accurate launch count for ${creator.address.slice(0, 8)}: ${error.message}`);
-  }
+  // CRITICAL: Verify actual launch count from PumpFun profile before sending alert
+  // This catches spam creators who have 100s of launches but we only tracked a few
+  const pumpFunVerification = await verifyCreatorNotSpam(
+    creator.address,
+    creator.bonded_count,
+    creator.total_launches
+  );
   
-  // Check spam using updated metrics
-  const spamCheck = await checkIfSpamLauncher(
+  if (pumpFunVerification.isSpam) {
+    logger.info(`[SPAM BLOCKED] ${creator.address.slice(0, 8)}: ${pumpFunVerification.reason}`);
+    return;
+  }
+
+  // Use actual launch count from PumpFun if available
+  let actualLaunches = pumpFunVerification.actualLaunches || creator.total_launches;
+  
+  // Also run local spam detection as backup
+  const localSpamCheck = await checkIfSpamLauncher(
     creator.address,
     creator.bonded_count,
     creator.hits_100k_count,
     actualLaunches
   );
   
-  if (spamCheck.isSpam) {
-    logger.info(`Skipping alert for spam launcher ${creator.address.slice(0, 8)}: ${spamCheck.reason}`);
+  if (localSpamCheck.isSpam) {
+    logger.info(`[LOCAL SPAM CHECK] ${creator.address.slice(0, 8)}: ${localSpamCheck.reason}`);
     return;
   }
   
