@@ -120,29 +120,30 @@ async function handleImport(ctx: Context): Promise<void> {
 
 async function handleFlipsideImport(ctx: Context): Promise<void> {
   const userId = ctx.from?.id.toString();
-  logger.info(`Flipside import command from user: ${userId}`);
+  logger.info(`Dune import command from user: ${userId}`);
   
   if (!userId || !ADMIN_USER_IDS.includes(userId)) {
     await ctx.reply(`This command is only available to admins. Your ID: ${userId}`);
     return;
   }
 
-  if (!process.env.FLIPSIDE_API_KEY) {
+  if (!process.env.DUNE_API_KEY) {
     await ctx.reply(
-      `FLIPSIDE_API_KEY not configured.\n\n` +
-      `To use Flipside for 3-month historical data:\n` +
-      `1. Get a free API key at flipsidecrypto.xyz\n` +
-      `2. Add FLIPSIDE_API_KEY to your secrets`
+      `DUNE_API_KEY not configured.\n\n` +
+      `To use Dune Analytics for 3-month historical data:\n` +
+      `1. Sign up at dune.com\n` +
+      `2. Go to Settings > API Keys\n` +
+      `3. Generate a key and add DUNE_API_KEY to secrets`
     );
     return;
   }
 
-  const { getFlipsideImportProgress, importFromFlipside } = await import("../services/flipsideHistoricalImport");
+  const { getDuneImportProgress, importFromDune } = await import("../services/duneHistoricalImport");
   
-  const currentProgress = getFlipsideImportProgress();
+  const currentProgress = getDuneImportProgress();
   if (currentProgress.isRunning) {
     await ctx.reply(
-      `Flipside import already running:\n` +
+      `Dune import already running:\n` +
       `- Found: ${currentProgress.totalFound}\n` +
       `- Verified: ${currentProgress.verified}\n` +
       `- Imported: ${currentProgress.imported}\n` +
@@ -151,17 +152,17 @@ async function handleFlipsideImport(ctx: Context): Promise<void> {
     return;
   }
 
-  await ctx.reply("Starting Flipside 3-month historical import... This may take 5-10 minutes. I'll update you on progress.");
+  await ctx.reply("Starting Dune 3-month historical import... This may take 5-10 minutes. I'll update you on progress.");
   
   const updateInterval = setInterval(async () => {
-    const progress = getFlipsideImportProgress();
+    const progress = getDuneImportProgress();
     if (!progress.isRunning) {
       clearInterval(updateInterval);
       return;
     }
     try {
       await ctx.reply(
-        `Flipside import progress:\n` +
+        `Dune import progress:\n` +
         `- Found: ${progress.totalFound} creators\n` +
         `- Verified: ${progress.verified}\n` +
         `- Imported: ${progress.imported}\n` +
@@ -171,11 +172,11 @@ async function handleFlipsideImport(ctx: Context): Promise<void> {
   }, 60000);
   
   try {
-    const stats = await importFromFlipside(3, 500);
+    const stats = await importFromDune(3, 500);
     clearInterval(updateInterval);
     
     await ctx.reply(
-      `Flipside 3-month import complete:\n` +
+      `Dune 3-month import complete:\n` +
       `- Creators found: ${stats.totalFound}\n` +
       `- Verified: ${stats.verified}\n` +
       `- Imported: ${stats.imported}\n` +
@@ -184,8 +185,8 @@ async function handleFlipsideImport(ctx: Context): Promise<void> {
     );
   } catch (error: any) {
     clearInterval(updateInterval);
-    await ctx.reply(`Flipside import failed: ${error.message}`);
-    logger.error("Flipside import failed:", error.message);
+    await ctx.reply(`Dune import failed: ${error.message}`);
+    logger.error("Dune import failed:", error.message);
   }
 }
 
