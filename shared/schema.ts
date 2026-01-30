@@ -144,3 +144,94 @@ export const heliusWebhookPayloadSchema = z.array(z.object({
 }));
 
 export type HeliusWebhookPayload = z.infer<typeof heliusWebhookPayloadSchema>;
+
+// Sniper settings schema
+export const takeProfitBracketSchema = z.object({
+  percentage: z.number().min(0).max(100),
+  multiplier: z.number().min(1),
+});
+
+export type TakeProfitBracket = z.infer<typeof takeProfitBracketSchema>;
+
+export const sniperSettingsSchema = z.object({
+  user_id: z.string(),
+  auto_buy_enabled: z.boolean().default(false),
+  buy_amount_sol: z.number().default(0.1),
+  slippage_percent: z.number().default(20),
+  jito_tip_sol: z.number().default(0.005),
+  priority_fee_lamports: z.number().default(100000),
+  tp_brackets: z.array(takeProfitBracketSchema).default([
+    { percentage: 50, multiplier: 2 },
+    { percentage: 30, multiplier: 5 },
+    { percentage: 20, multiplier: 10 },
+  ]),
+  moon_bag_percent: z.number().default(0),
+  stop_loss_percent: z.number().default(50),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+
+export type SniperSettings = z.infer<typeof sniperSettingsSchema>;
+
+export const insertSniperSettingsSchema = sniperSettingsSchema.omit({ created_at: true, updated_at: true });
+export type InsertSniperSettings = z.infer<typeof insertSniperSettingsSchema>;
+
+// Wallet schema
+export const walletSchema = z.object({
+  user_id: z.string(),
+  public_key: z.string(),
+  encrypted_private_key: z.string(),
+  created_at: z.string().optional(),
+});
+
+export type Wallet = z.infer<typeof walletSchema>;
+
+export const insertWalletSchema = walletSchema.omit({ created_at: true });
+export type InsertWallet = z.infer<typeof insertWalletSchema>;
+
+// Position schema
+export const positionSchema = z.object({
+  id: z.number(),
+  user_id: z.string(),
+  token_address: z.string(),
+  token_symbol: z.string().nullable(),
+  token_name: z.string().nullable(),
+  entry_price_sol: z.number(),
+  entry_amount_sol: z.number(),
+  tokens_bought: z.number(),
+  tokens_remaining: z.number(),
+  current_price_sol: z.number().default(0),
+  unrealized_pnl_percent: z.number().default(0),
+  tp1_hit: z.boolean().default(false),
+  tp2_hit: z.boolean().default(false),
+  tp3_hit: z.boolean().default(false),
+  status: z.enum(["open", "closed", "partial"]).default("open"),
+  created_at: z.string().optional(),
+  closed_at: z.string().nullable().optional(),
+});
+
+export type Position = z.infer<typeof positionSchema>;
+
+export const insertPositionSchema = positionSchema.omit({ id: true, created_at: true, closed_at: true });
+export type InsertPosition = z.infer<typeof insertPositionSchema>;
+
+// Trade history schema
+export const tradeHistorySchema = z.object({
+  id: z.number(),
+  user_id: z.string(),
+  position_id: z.number(),
+  token_address: z.string(),
+  token_symbol: z.string().nullable(),
+  trade_type: z.enum(["buy", "sell"]),
+  amount_sol: z.number(),
+  tokens_amount: z.number(),
+  price_per_token: z.number(),
+  tx_signature: z.string().nullable(),
+  trigger_reason: z.string().nullable(),
+  created_at: z.string().optional(),
+});
+
+export type TradeHistory = z.infer<typeof tradeHistorySchema>;
+
+export const insertTradeHistorySchema = tradeHistorySchema.omit({ id: true, created_at: true });
+export type InsertTradeHistory = z.infer<typeof insertTradeHistorySchema>;

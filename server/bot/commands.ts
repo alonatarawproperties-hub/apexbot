@@ -6,6 +6,7 @@ import { isValidSolanaAddress, formatAddress, formatMarketCap, formatPercentage,
 import { getStartKeyboard, getHelpKeyboard, getSettingsKeyboard, getStatsKeyboard, getWatchlistKeyboard, getBackToWatchlistKeyboard, getTokensKeyboard } from "./keyboards";
 import { importHistoricalCreators } from "../services/historicalImport";
 import { runCreatorBackfill, getBackfillProgress } from "../services/heliusBackfill";
+import { registerSniperCommands, handleSniperCallback, handlePrivateKeyImport } from "./sniperCommands";
 import type { UserSettings } from "@shared/schema";
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -34,7 +35,16 @@ export function registerCommands(bot: Bot): void {
   bot.command("backfill", handleBackfill);
   bot.command("backfillstatus", handleBackfillStatus);
   
+  registerSniperCommands(bot);
+  
   bot.on("callback_query:data", handleCallback);
+  
+  bot.on("message:text", async (ctx) => {
+    const text = ctx.message?.text || "";
+    if (text.startsWith("[") || text.length === 88 || text.length === 128) {
+      await handlePrivateKeyImport(ctx, text);
+    }
+  });
 }
 
 async function handleImport(ctx: Context): Promise<void> {
@@ -414,7 +424,16 @@ async function handleCallback(ctx: Context): Promise<void> {
   
   await ensureUser(ctx);
   
-  const [prefix, action, value] = data.split(":");
+  const parts = data.split(":");
+  const prefix = parts[0];
+  const action = parts[1];
+  const value = parts.slice(2).join(":");
+  
+  if (prefix === "sniper") {
+    await handleSniperCallback(ctx, action, value);
+    return;
+  }
+  
   if (prefix !== "apex") return;
   
   const userId = ctx.from!.id.toString();

@@ -8,7 +8,12 @@ import type {
   Creator, InsertCreator, 
   Token, InsertToken,
   WatchlistEntry, InsertWatchlistEntry,
-  AlertLog, InsertAlertLog 
+  AlertLog, InsertAlertLog,
+  SniperSettings, InsertSniperSettings,
+  Wallet, InsertWallet,
+  Position, InsertPosition,
+  TradeHistory, InsertTradeHistory,
+  TakeProfitBracket
 } from "@shared/schema";
 
 let db: Database.Database;
@@ -100,6 +105,72 @@ function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_tokens_creator ON tokens(creator_address);
     CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id);
     CREATE INDEX IF NOT EXISTS idx_watchlist_creator ON watchlist(creator_address);
+
+    -- Sniper tables
+    CREATE TABLE IF NOT EXISTS wallets (
+      user_id TEXT PRIMARY KEY,
+      public_key TEXT NOT NULL,
+      encrypted_private_key TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS sniper_settings (
+      user_id TEXT PRIMARY KEY,
+      auto_buy_enabled INTEGER DEFAULT 0,
+      buy_amount_sol REAL DEFAULT 0.1,
+      slippage_percent REAL DEFAULT 20,
+      jito_tip_sol REAL DEFAULT 0.005,
+      priority_fee_lamports INTEGER DEFAULT 100000,
+      tp_brackets TEXT DEFAULT '[{"percentage":50,"multiplier":2},{"percentage":30,"multiplier":5},{"percentage":20,"multiplier":10}]',
+      moon_bag_percent REAL DEFAULT 0,
+      stop_loss_percent REAL DEFAULT 50,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      token_address TEXT NOT NULL,
+      token_symbol TEXT,
+      token_name TEXT,
+      entry_price_sol REAL NOT NULL,
+      entry_amount_sol REAL NOT NULL,
+      tokens_bought REAL NOT NULL,
+      tokens_remaining REAL NOT NULL,
+      current_price_sol REAL DEFAULT 0,
+      unrealized_pnl_percent REAL DEFAULT 0,
+      tp1_hit INTEGER DEFAULT 0,
+      tp2_hit INTEGER DEFAULT 0,
+      tp3_hit INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'open',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      closed_at TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(telegram_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS trade_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      position_id INTEGER,
+      token_address TEXT NOT NULL,
+      token_symbol TEXT,
+      trade_type TEXT NOT NULL,
+      amount_sol REAL NOT NULL,
+      tokens_amount REAL NOT NULL,
+      price_per_token REAL NOT NULL,
+      tx_signature TEXT,
+      trigger_reason TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(telegram_id),
+      FOREIGN KEY (position_id) REFERENCES positions(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_positions_user ON positions(user_id);
+    CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
+    CREATE INDEX IF NOT EXISTS idx_trade_history_user ON trade_history(user_id);
   `);
 }
 
@@ -327,4 +398,215 @@ export function getAlertsSentToday(): number {
 
 export function getDatabase(): Database.Database {
   return db;
+}
+
+// ============ SNIPER OPERATIONS ============
+
+// Wallet operations
+export function getWallet(userId: string): Wallet | undefined {
+  return db.prepare("SELECT * FROM wallets WHERE user_id = ?").get(userId) as Wallet | undefined;
+}
+
+export function createWallet(wallet: InsertWallet): Wallet {
+  db.prepare(`
+    INSERT INTO wallets (user_id, public_key, encrypted_private_key)
+    VALUES (?, ?, ?)
+  `).run(wallet.user_id, wallet.public_key, wallet.encrypted_private_key);
+  return getWallet(wallet.user_id)!;
+}
+
+export function updateWallet(userId: string, wallet: Partial<InsertWallet>): void {
+  const fields: string[] = [];
+  const values: any[] = [];
+  if (wallet.public_key) { fields.push("public_key = ?"); values.push(wallet.public_key); }
+  if (wallet.encrypted_private_key) { fields.push("encrypted_private_key = ?"); values.push(wallet.encrypted_private_key); }
+  if (fields.length > 0) {
+    values.push(userId);
+    db.prepare(`UPDATE wallets SET ${fields.join(", ")} WHERE user_id = ?`).run(...values);
+  }
+}
+
+export function deleteWallet(userId: string): boolean {
+  const result = db.prepare("DELETE FROM wallets WHERE user_id = ?").run(userId);
+  return result.changes > 0;
+}
+
+// Sniper settings operations
+export function getSniperSettings(userId: string): SniperSettings | undefined {
+  const row = db.prepare("SELECT * FROM sniper_settings WHERE user_id = ?").get(userId) as any;
+  if (!row) return undefined;
+  return {
+    ...row,
+    auto_buy_enabled: Boolean(row.auto_buy_enabled),
+    tp_brackets: JSON.parse(row.tp_brackets) as TakeProfitBracket[],
+  };
+}
+
+export function createSniperSettings(settings: InsertSniperSettings): SniperSettings {
+  db.prepare(`
+    INSERT INTO sniper_settings (user_id, auto_buy_enabled, buy_amount_sol, slippage_percent, jito_tip_sol, priority_fee_lamports, tp_brackets, moon_bag_percent, stop_loss_percent)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    settings.user_id,
+    settings.auto_buy_enabled ? 1 : 0,
+    settings.buy_amount_sol,
+    settings.slippage_percent,
+    settings.jito_tip_sol,
+    settings.priority_fee_lamports,
+    JSON.stringify(settings.tp_brackets),
+    settings.moon_bag_percent,
+    settings.stop_loss_percent
+  );
+  return getSniperSettings(settings.user_id)!;
+}
+
+export function updateSniperSettings(userId: string, updates: Partial<InsertSniperSettings>): void {
+  const fields: string[] = [];
+  const values: any[] = [];
+  
+  if (updates.auto_buy_enabled !== undefined) { fields.push("auto_buy_enabled = ?"); values.push(updates.auto_buy_enabled ? 1 : 0); }
+  if (updates.buy_amount_sol !== undefined) { fields.push("buy_amount_sol = ?"); values.push(updates.buy_amount_sol); }
+  if (updates.slippage_percent !== undefined) { fields.push("slippage_percent = ?"); values.push(updates.slippage_percent); }
+  if (updates.jito_tip_sol !== undefined) { fields.push("jito_tip_sol = ?"); values.push(updates.jito_tip_sol); }
+  if (updates.priority_fee_lamports !== undefined) { fields.push("priority_fee_lamports = ?"); values.push(updates.priority_fee_lamports); }
+  if (updates.tp_brackets !== undefined) { fields.push("tp_brackets = ?"); values.push(JSON.stringify(updates.tp_brackets)); }
+  if (updates.moon_bag_percent !== undefined) { fields.push("moon_bag_percent = ?"); values.push(updates.moon_bag_percent); }
+  if (updates.stop_loss_percent !== undefined) { fields.push("stop_loss_percent = ?"); values.push(updates.stop_loss_percent); }
+  
+  if (fields.length > 0) {
+    fields.push("updated_at = ?");
+    values.push(getCurrentTimestamp());
+    values.push(userId);
+    db.prepare(`UPDATE sniper_settings SET ${fields.join(", ")} WHERE user_id = ?`).run(...values);
+  }
+}
+
+export function getOrCreateSniperSettings(userId: string): SniperSettings {
+  let settings = getSniperSettings(userId);
+  if (!settings) {
+    settings = createSniperSettings({
+      user_id: userId,
+      auto_buy_enabled: false,
+      buy_amount_sol: 0.1,
+      slippage_percent: 20,
+      jito_tip_sol: 0.005,
+      priority_fee_lamports: 100000,
+      tp_brackets: [
+        { percentage: 50, multiplier: 2 },
+        { percentage: 30, multiplier: 5 },
+        { percentage: 20, multiplier: 10 },
+      ],
+      moon_bag_percent: 0,
+      stop_loss_percent: 50,
+    });
+  }
+  return settings;
+}
+
+// Position operations
+export function createPosition(position: InsertPosition): Position {
+  const result = db.prepare(`
+    INSERT INTO positions (user_id, token_address, token_symbol, token_name, entry_price_sol, entry_amount_sol, tokens_bought, tokens_remaining, current_price_sol, unrealized_pnl_percent, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    position.user_id,
+    position.token_address,
+    position.token_symbol,
+    position.token_name,
+    position.entry_price_sol,
+    position.entry_amount_sol,
+    position.tokens_bought,
+    position.tokens_remaining,
+    position.current_price_sol || 0,
+    position.unrealized_pnl_percent || 0,
+    position.status || "open"
+  );
+  return getPosition(result.lastInsertRowid as number)!;
+}
+
+export function getPosition(id: number): Position | undefined {
+  const row = db.prepare("SELECT * FROM positions WHERE id = ?").get(id) as any;
+  if (!row) return undefined;
+  return {
+    ...row,
+    tp1_hit: Boolean(row.tp1_hit),
+    tp2_hit: Boolean(row.tp2_hit),
+    tp3_hit: Boolean(row.tp3_hit),
+  };
+}
+
+export function getUserPositions(userId: string, status?: string): Position[] {
+  let query = "SELECT * FROM positions WHERE user_id = ?";
+  const params: any[] = [userId];
+  if (status) {
+    query += " AND status = ?";
+    params.push(status);
+  }
+  query += " ORDER BY created_at DESC";
+  const rows = db.prepare(query).all(...params) as any[];
+  return rows.map(row => ({
+    ...row,
+    tp1_hit: Boolean(row.tp1_hit),
+    tp2_hit: Boolean(row.tp2_hit),
+    tp3_hit: Boolean(row.tp3_hit),
+  }));
+}
+
+export function getOpenPositions(): Position[] {
+  const rows = db.prepare("SELECT * FROM positions WHERE status = 'open' OR status = 'partial'").all() as any[];
+  return rows.map(row => ({
+    ...row,
+    tp1_hit: Boolean(row.tp1_hit),
+    tp2_hit: Boolean(row.tp2_hit),
+    tp3_hit: Boolean(row.tp3_hit),
+  }));
+}
+
+export function updatePosition(id: number, updates: Partial<Position>): void {
+  const fields: string[] = [];
+  const values: any[] = [];
+  
+  if (updates.tokens_remaining !== undefined) { fields.push("tokens_remaining = ?"); values.push(updates.tokens_remaining); }
+  if (updates.current_price_sol !== undefined) { fields.push("current_price_sol = ?"); values.push(updates.current_price_sol); }
+  if (updates.unrealized_pnl_percent !== undefined) { fields.push("unrealized_pnl_percent = ?"); values.push(updates.unrealized_pnl_percent); }
+  if (updates.tp1_hit !== undefined) { fields.push("tp1_hit = ?"); values.push(updates.tp1_hit ? 1 : 0); }
+  if (updates.tp2_hit !== undefined) { fields.push("tp2_hit = ?"); values.push(updates.tp2_hit ? 1 : 0); }
+  if (updates.tp3_hit !== undefined) { fields.push("tp3_hit = ?"); values.push(updates.tp3_hit ? 1 : 0); }
+  if (updates.status !== undefined) { fields.push("status = ?"); values.push(updates.status); }
+  if (updates.closed_at !== undefined) { fields.push("closed_at = ?"); values.push(updates.closed_at); }
+  
+  if (fields.length > 0) {
+    values.push(id);
+    db.prepare(`UPDATE positions SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+  }
+}
+
+export function closePosition(id: number): void {
+  db.prepare("UPDATE positions SET status = 'closed', closed_at = ? WHERE id = ?")
+    .run(getCurrentTimestamp(), id);
+}
+
+// Trade history operations
+export function createTradeHistory(trade: InsertTradeHistory): TradeHistory {
+  const result = db.prepare(`
+    INSERT INTO trade_history (user_id, position_id, token_address, token_symbol, trade_type, amount_sol, tokens_amount, price_per_token, tx_signature, trigger_reason)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    trade.user_id,
+    trade.position_id,
+    trade.token_address,
+    trade.token_symbol,
+    trade.trade_type,
+    trade.amount_sol,
+    trade.tokens_amount,
+    trade.price_per_token,
+    trade.tx_signature,
+    trade.trigger_reason
+  );
+  return db.prepare("SELECT * FROM trade_history WHERE id = ?").get(result.lastInsertRowid) as TradeHistory;
+}
+
+export function getUserTradeHistory(userId: string, limit: number = 20): TradeHistory[] {
+  return db.prepare("SELECT * FROM trade_history WHERE user_id = ? ORDER BY created_at DESC LIMIT ?")
+    .all(userId, limit) as TradeHistory[];
 }

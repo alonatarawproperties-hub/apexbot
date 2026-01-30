@@ -4,10 +4,11 @@
 
 Apex is a Telegram bot that monitors PumpFun token launches in real-time and alerts users when tokens are created by historically successful creators. Success is defined by configurable thresholds including bonded token counts and market cap milestones (100K+ hits). The system tracks creator performance metrics and provides personalized alerts based on user preferences.
 
-The application consists of three main components:
+The application consists of four main components:
 1. **Telegram Bot** - User interface for settings, watchlists, and receiving alerts
 2. **Webhook Handler** - Receives real-time token creation events from Helius
 3. **Dashboard** - Web interface for monitoring system status and statistics
+4. **Sniper Bot** - Automated token buying with TP/SL brackets and Jito MEV protection
 
 ## User Preferences
 
@@ -39,6 +40,22 @@ Preferred communication style: Simple, everyday language.
 ### Background Jobs
 - **MC Tracker** (2-minute interval): Monitors market cap changes for recent tokens
 - **Stats Aggregator** (30-minute interval): Recalculates creator qualification stats
+- **Position Monitor** (30-second interval): Checks TP/SL triggers for open positions
+
+### Sniper Bot Architecture
+- **Wallet Service**: AES-256-GCM encrypted wallet storage with WALLET_ENCRYPTION_KEY
+- **Sniper Service**: PumpFun swap execution via bonding curve calculations
+- **Jito Service**: MEV-protected bundle transactions for faster execution
+- **Position Monitor**: Automatic TP/SL execution at configured brackets
+
+### Sniper Bot Features
+- Auto-buy on qualified creator alerts
+- Customizable buy amount, slippage, and Jito tip
+- Take-profit brackets (Conservative/Balanced/Aggressive presets)
+- Moon bag percentage to keep long-term positions
+- Stop-loss with 100% sell
+- Manual sell controls (50%/100%)
+- Trade history tracking
 
 ### Key Design Decisions
 - **SQLite over PostgreSQL**: Chosen for simplicity and zero-configuration deployment. Drizzle config exists for potential PostgreSQL migration.

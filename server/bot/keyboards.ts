@@ -9,6 +9,9 @@ export function getStartKeyboard() {
         { text: "⚙️ Settings", callback_data: "apex:settings:show" },
         { text: "📖 Help", callback_data: "apex:help:show" },
       ],
+      [
+        { text: "🎯 Sniper", callback_data: "sniper:back" },
+      ],
     ],
   };
 }

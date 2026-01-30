@@ -6,6 +6,7 @@ import type { Creator, Token, User } from "@shared/schema";
 import { checkQualification, getCreatorTier } from "./creatorService";
 import { checkIfSpamLauncher } from "./spamDetection";
 import { getCreatorLaunchCount } from "./bitqueryService";
+import { snipeToken } from "./sniperService";
 
 let botInstance: Bot | null = null;
 
@@ -93,6 +94,32 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
       db.incrementUserAlerts(user.telegram_id);
       
       logger.alert(`Alert sent to ${user.telegram_id} for token ${token.symbol || token.address}`);
+      
+      const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
+      if (sniperSettings.auto_buy_enabled) {
+        const wallet = db.getWallet(user.telegram_id);
+        if (wallet) {
+          snipeToken(user.telegram_id, token.address).then((result) => {
+            const symbol = token.symbol || "???";
+            if (result.success) {
+              botInstance?.api.sendMessage(user.telegram_id, 
+                `✅ *AUTO-SNIPE SUCCESS*\n\n` +
+                `Bought $${symbol} with ${sniperSettings.buy_amount_sol} SOL\n` +
+                `TX: \`${result.txId?.slice(0, 20) || "pending"}...\``,
+                { parse_mode: "Markdown" }
+              ).catch((e) => logger.error(`Failed to send auto-snipe success msg: ${e.message}`));
+            } else {
+              botInstance?.api.sendMessage(user.telegram_id,
+                `❌ *AUTO-SNIPE FAILED*\n\n` +
+                `$${symbol}: ${result.error || "Unknown error"}`,
+                { parse_mode: "Markdown" }
+              ).catch((e) => logger.error(`Failed to send auto-snipe fail msg: ${e.message}`));
+            }
+          }).catch((err) => {
+            logger.error(`Auto-snipe error for ${user.telegram_id}: ${err.message}`);
+          });
+        }
+      }
     } catch (error: any) {
       logger.error(`Failed to send alert to ${user.telegram_id}`, error.message);
       
