@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { logger } from "../utils/logger";
 import { processNewToken } from "./creatorService";
+import { trackCreatorLaunch } from "./spamDetection";
 import * as db from "../db";
 
 let ws: WebSocket | null = null;
@@ -89,6 +90,9 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
     if (!token.mint.toLowerCase().endsWith("pump")) {
       return;
     }
+    
+    // Track creator launch for rapid-fire spam detection
+    trackCreatorLaunch(token.traderPublicKey, token.symbol);
     
     const result = await processNewToken(
       token.traderPublicKey,

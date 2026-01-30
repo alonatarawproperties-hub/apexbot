@@ -99,13 +99,13 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
       if (sniperSettings.auto_buy_enabled) {
         const wallet = db.getWallet(user.telegram_id);
         if (wallet) {
-          snipeToken(user.telegram_id, token.address).then((result) => {
+          snipeToken(user.telegram_id, token.address, token.symbol, token.name).then((result) => {
             const symbol = token.symbol || "???";
             if (result.success) {
               botInstance?.api.sendMessage(user.telegram_id, 
                 `✅ *AUTO-SNIPE SUCCESS*\n\n` +
                 `Bought $${symbol} with ${sniperSettings.buy_amount_sol} SOL\n` +
-                `TX: \`${result.txId?.slice(0, 20) || "pending"}...\``,
+                `TX: \`${result.txSignature?.slice(0, 20) || "pending"}...\``,
                 { parse_mode: "Markdown" }
               ).catch((e) => logger.error(`Failed to send auto-snipe success msg: ${e.message}`));
             } else {
