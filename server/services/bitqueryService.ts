@@ -77,7 +77,7 @@ export async function fetchCreatorTokenHistory(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "X-API-KEY": apiKey,
       },
       body: JSON.stringify({
         query,
@@ -164,7 +164,7 @@ export async function getCreatorLaunchCount(creatorAddress: string): Promise<num
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "X-API-KEY": apiKey,
       },
       body: JSON.stringify({
         query,
