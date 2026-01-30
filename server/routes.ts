@@ -8,6 +8,7 @@ import { startMcTracker } from "./jobs/mcTracker";
 import { startStatsAggregator } from "./jobs/statsAggregator";
 import { runBackfill, getBackfillStatus } from "./jobs/backfillJob";
 import { recalculateCreatorStats } from "./services/creatorService";
+import { runCreatorBackfill, getBackfillProgress } from "./services/heliusBackfill";
 
 const startTime = Date.now();
 
@@ -102,6 +103,33 @@ export async function registerRoutes(
     try {
       const status = getBackfillStatus();
       res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/backfill/helius", async (req, res) => {
+    try {
+      const progress = getBackfillProgress();
+      if (progress.isRunning) {
+        res.json({ message: "Backfill already running", progress });
+        return;
+      }
+      
+      res.json({ message: "Helius backfill started", progress: getBackfillProgress() });
+      
+      runCreatorBackfill().catch(err => {
+        console.error("Helius backfill error:", err.message);
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/backfill/helius/status", (req, res) => {
+    try {
+      const progress = getBackfillProgress();
+      res.json(progress);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
