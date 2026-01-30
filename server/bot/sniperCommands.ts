@@ -17,6 +17,116 @@ import type { SniperSettings, Position } from "@shared/schema";
 
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
 
+// Conversation state for custom input
+type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "buy" | "slip" | "priority";
+interface PendingInput {
+  type: InputType;
+  tpIndex?: number; // For editing specific TP bracket
+}
+const pendingInputs = new Map<string, PendingInput>();
+
+export function hasPendingInput(userId: string): boolean {
+  return pendingInputs.has(userId);
+}
+
+export async function handleCustomInput(ctx: Context, text: string): Promise<boolean> {
+  const userId = ctx.from?.id.toString();
+  if (!userId) return false;
+  
+  const pending = pendingInputs.get(userId);
+  if (!pending) return false;
+  
+  const value = parseFloat(text);
+  if (isNaN(value)) {
+    await ctx.reply("Please enter a valid number.");
+    return true;
+  }
+  
+  pendingInputs.delete(userId);
+  const settings = db.getOrCreateSniperSettings(userId);
+  
+  switch (pending.type) {
+    case "jito":
+      if (value < 0 || value > 1) {
+        await ctx.reply("Jito tip must be between 0 and 1 SOL.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { jito_tip_sol: value });
+      await ctx.reply(`Jito tip set to ${value} SOL`);
+      break;
+    case "sl":
+      if (value < 0 || value > 100) {
+        await ctx.reply("Stop loss must be between 0 and 100%.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { stop_loss_percent: value });
+      await ctx.reply(value === 0 ? "Stop loss disabled" : `Stop loss set to -${value}%`);
+      break;
+    case "moon":
+      if (value < 0 || value > 100) {
+        await ctx.reply("Moon bag must be between 0 and 100%.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { moon_bag_percent: value });
+      await ctx.reply(`Moon bag set to ${value}%`);
+      break;
+    case "buy":
+      if (value <= 0 || value > 100) {
+        await ctx.reply("Buy amount must be between 0.001 and 100 SOL.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { buy_amount_sol: value });
+      await ctx.reply(`Buy amount set to ${value} SOL`);
+      break;
+    case "slip":
+      if (value < 1 || value > 100) {
+        await ctx.reply("Slippage must be between 1 and 100%.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { slippage_percent: value });
+      await ctx.reply(`Slippage set to ${value}%`);
+      break;
+    case "priority":
+      if (value < 0) {
+        await ctx.reply("Priority must be 0 or higher.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { priority_fee_lamports: Math.floor(value) });
+      await ctx.reply(`Priority fee set to ${Math.floor(value)} lamports`);
+      break;
+    case "tp_pct":
+      if (value < 1 || value > 100) {
+        await ctx.reply("TP percentage must be between 1 and 100%.");
+        return true;
+      }
+      if (pending.tpIndex !== undefined) {
+        const brackets = [...(settings.tp_brackets || [])];
+        if (brackets[pending.tpIndex]) {
+          brackets[pending.tpIndex].percentage = value;
+          db.updateSniperSettings(userId, { tp_brackets: brackets });
+          await ctx.reply(`TP${pending.tpIndex + 1} percentage set to ${value}%`);
+        }
+      }
+      break;
+    case "tp_mult":
+      if (value < 1.1 || value > 1000) {
+        await ctx.reply("TP multiplier must be between 1.1x and 1000x.");
+        return true;
+      }
+      if (pending.tpIndex !== undefined) {
+        const brackets = [...(settings.tp_brackets || [])];
+        if (brackets[pending.tpIndex]) {
+          brackets[pending.tpIndex].multiplier = value;
+          db.updateSniperSettings(userId, { tp_brackets: brackets });
+          await ctx.reply(`TP${pending.tpIndex + 1} multiplier set to ${value}x`);
+        }
+      }
+      break;
+  }
+  
+  return true;
+}
+
 export function registerSniperCommands(bot: Bot): void {
   bot.command("sniper", handleSniper);
 }
@@ -158,6 +268,18 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
         break;
       case "back":
         await handleSniper(ctx);
+        break;
+      case "custom":
+        await promptCustomInput(ctx, userId, value as InputType);
+        break;
+      case "edit_tp_bracket":
+        await showTPBracketEdit(ctx, userId, parseInt(value));
+        break;
+      case "set_tp_pct":
+        await setTPBracketPct(ctx, userId, value);
+        break;
+      case "set_tp_mult":
+        await setTPBracketMult(ctx, userId, value);
         break;
       default:
         if (action.startsWith("set_")) {
@@ -517,6 +639,8 @@ Select amount:`,
         .text("1.0", "sniper:set_buy:1")
         .text("2.0", "sniper:set_buy:2")
         .row()
+        .text("Custom...", "sniper:custom:buy")
+        .row()
         .text("← Back", "sniper:settings"),
     }
   );
@@ -540,6 +664,8 @@ Select slippage:`,
         .text("30%", "sniper:set_slip:30")
         .text("50%", "sniper:set_slip:50")
         .row()
+        .text("Custom...", "sniper:custom:slip")
+        .row()
         .text("← Back", "sniper:settings"),
     }
   );
@@ -551,9 +677,9 @@ async function promptEditJito(ctx: Context, userId: string): Promise<void> {
 
 Current: ${formatMarkdownValue(db.getOrCreateSniperSettings(userId).jito_tip_sol)} SOL
 
-Higher tip = faster execution
+Higher tip \\= faster execution
 
-Select tip:`,
+Select tip or type custom value:`,
     {
       parse_mode: "MarkdownV2",
       reply_markup: new InlineKeyboard()
@@ -564,6 +690,8 @@ Select tip:`,
         .text("0.01", "sniper:set_jito:0.01")
         .text("0.02", "sniper:set_jito:0.02")
         .text("0.05", "sniper:set_jito:0.05")
+        .row()
+        .text("Custom...", "sniper:custom:jito")
         .row()
         .text("← Back", "sniper:settings"),
     }
@@ -578,7 +706,7 @@ Current: ${formatMarkdownValue(`-${db.getOrCreateSniperSettings(userId).stop_los
 
 Sells 100% when price drops this much\\.
 
-Select stop loss:`,
+Select stop loss or type custom value:`,
     {
       parse_mode: "MarkdownV2",
       reply_markup: new InlineKeyboard()
@@ -589,6 +717,8 @@ Select stop loss:`,
         .text("-50%", "sniper:set_sl:50")
         .text("-70%", "sniper:set_sl:70")
         .text("OFF", "sniper:set_sl:0")
+        .row()
+        .text("Custom...", "sniper:custom:sl")
         .row()
         .text("← Back", "sniper:settings"),
     }
@@ -610,22 +740,113 @@ async function showTPMenu(ctx: Context, userId: string): Promise<void> {
 
 ${tpText}
 
-Select a preset:`,
+Select preset or edit individual brackets:`,
     {
       parse_mode: "MarkdownV2",
       reply_markup: new InlineKeyboard()
         .text("Conservative", "sniper:set_tp:conservative")
-        .row()
         .text("Balanced", "sniper:set_tp:balanced")
-        .row()
         .text("Aggressive", "sniper:set_tp:aggressive")
+        .row()
+        .text("Edit TP1", "sniper:edit_tp_bracket:0")
+        .text("Edit TP2", "sniper:edit_tp_bracket:1")
+        .text("Edit TP3", "sniper:edit_tp_bracket:2")
         .row()
         .text("Moon Bag 10%", "sniper:set_moon:10")
         .text("Moon Bag 20%", "sniper:set_moon:20")
+        .text("Custom", "sniper:custom:moon")
         .row()
         .text("← Back", "sniper:settings"),
     }
   );
+}
+
+async function promptCustomInput(ctx: Context, userId: string, inputType: InputType): Promise<void> {
+  pendingInputs.set(userId, { type: inputType });
+  
+  const prompts: Record<InputType, string> = {
+    jito: "Enter your custom Jito tip in SOL (e.g., 0.007):",
+    sl: "Enter your custom stop loss percentage (e.g., 35 for -35%):",
+    moon: "Enter your custom moon bag percentage (e.g., 15):",
+    buy: "Enter your custom buy amount in SOL (e.g., 0.25):",
+    slip: "Enter your custom slippage percentage (e.g., 25):",
+    priority: "Enter priority fee in lamports (e.g., 50000):",
+    tp_pct: "Enter TP percentage to sell (1-100):",
+    tp_mult: "Enter TP multiplier target (e.g., 3 for 3x):",
+  };
+  
+  await ctx.answerCallbackQuery();
+  await ctx.reply(prompts[inputType] || "Enter your value:");
+}
+
+async function showTPBracketEdit(ctx: Context, userId: string, bracketIndex: number): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = settings.tp_brackets || [];
+  const bracket = brackets[bracketIndex];
+  
+  if (!bracket) {
+    await ctx.answerCallbackQuery({ text: "Bracket not found" });
+    return;
+  }
+  
+  await ctx.editMessageText(
+    `📈 *EDIT TP${bracketIndex + 1}*
+
+Current: ${formatMarkdownValue(bracket.percentage)}% @ ${formatMarkdownValue(bracket.multiplier)}x
+
+This sells ${formatMarkdownValue(bracket.percentage)}% of your position when price reaches ${formatMarkdownValue(bracket.multiplier)}x\\.`,
+    {
+      parse_mode: "MarkdownV2",
+      reply_markup: new InlineKeyboard()
+        .text("10%", `sniper:set_tp_pct:${bracketIndex}:10`)
+        .text("20%", `sniper:set_tp_pct:${bracketIndex}:20`)
+        .text("30%", `sniper:set_tp_pct:${bracketIndex}:30`)
+        .text("50%", `sniper:set_tp_pct:${bracketIndex}:50`)
+        .row()
+        .text("2x", `sniper:set_tp_mult:${bracketIndex}:2`)
+        .text("3x", `sniper:set_tp_mult:${bracketIndex}:3`)
+        .text("5x", `sniper:set_tp_mult:${bracketIndex}:5`)
+        .text("10x", `sniper:set_tp_mult:${bracketIndex}:10`)
+        .row()
+        .text("20x", `sniper:set_tp_mult:${bracketIndex}:20`)
+        .text("50x", `sniper:set_tp_mult:${bracketIndex}:50`)
+        .text("100x", `sniper:set_tp_mult:${bracketIndex}:100`)
+        .row()
+        .text("← Back to TP", "sniper:edit_tp"),
+    }
+  );
+}
+
+async function setTPBracketPct(ctx: Context, userId: string, value: string): Promise<void> {
+  const [indexStr, pctStr] = value.split(":");
+  const index = parseInt(indexStr);
+  const pct = parseFloat(pctStr);
+  
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = [...(settings.tp_brackets || [])];
+  
+  if (brackets[index]) {
+    brackets[index].percentage = pct;
+    db.updateSniperSettings(userId, { tp_brackets: brackets });
+    await ctx.answerCallbackQuery({ text: `TP${index + 1} sell: ${pct}%` });
+    await showTPBracketEdit(ctx, userId, index);
+  }
+}
+
+async function setTPBracketMult(ctx: Context, userId: string, value: string): Promise<void> {
+  const [indexStr, multStr] = value.split(":");
+  const index = parseInt(indexStr);
+  const mult = parseFloat(multStr);
+  
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = [...(settings.tp_brackets || [])];
+  
+  if (brackets[index]) {
+    brackets[index].multiplier = mult;
+    db.updateSniperSettings(userId, { tp_brackets: brackets });
+    await ctx.answerCallbackQuery({ text: `TP${index + 1} target: ${mult}x` });
+    await showTPBracketEdit(ctx, userId, index);
+  }
 }
 
 async function handleSettingUpdate(ctx: Context, userId: string, action: string, value: string): Promise<void> {

@@ -6,7 +6,7 @@ import { isValidSolanaAddress, formatAddress, formatMarketCap, formatPercentage,
 import { getStartKeyboard, getHelpKeyboard, getSettingsKeyboard, getStatsKeyboard, getWatchlistKeyboard, getBackToWatchlistKeyboard, getTokensKeyboard } from "./keyboards";
 import { importHistoricalCreators } from "../services/historicalImport";
 import { runCreatorBackfill, getBackfillProgress } from "../services/heliusBackfill";
-import { registerSniperCommands, handleSniperCallback, handlePrivateKeyImport } from "./sniperCommands";
+import { registerSniperCommands, handleSniperCallback, handlePrivateKeyImport, hasPendingInput, handleCustomInput } from "./sniperCommands";
 import type { UserSettings } from "@shared/schema";
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -41,6 +41,15 @@ export function registerCommands(bot: Bot): void {
   
   bot.on("message:text", async (ctx) => {
     const text = ctx.message?.text || "";
+    const userId = ctx.from?.id.toString();
+    
+    // Check for pending custom input first
+    if (userId && hasPendingInput(userId)) {
+      await handleCustomInput(ctx, text);
+      return;
+    }
+    
+    // Check for private key import
     if (text.startsWith("[") || text.length === 88 || text.length === 128) {
       await handlePrivateKeyImport(ctx, text);
     }
