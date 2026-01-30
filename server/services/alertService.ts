@@ -77,7 +77,7 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
       const keyboard = getAlertKeyboard(updatedCreator.address, token.address);
       
       await botInstance.api.sendMessage(user.telegram_id, message, {
-        parse_mode: "Markdown",
+        parse_mode: "MarkdownV2",
         reply_markup: keyboard,
         link_preview_options: { is_disabled: true },
       });
