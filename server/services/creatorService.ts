@@ -102,9 +102,15 @@ export function isSpamCreator(totalLaunches: number, bondedCount: number, hits10
 export function getCreatorTier(bondedCount: number, hits100kCount: number, totalLaunches: number, bestMcEver: number): CreatorTier {
   const bondingRate = totalLaunches > 0 ? bondedCount / totalLaunches : 0;
   
-  // ABSOLUTE MINIMUM REQUIREMENT: Must have at least 2 bonded tokens
-  // This is the #1 rule to prevent spam - single lucky hits don't qualify
-  if (bondedCount < 2) {
+  // MINIMUM REQUIREMENTS based on launch count:
+  // - Under 5 launches: 1 bonded is OK (new creator with good rate)
+  // - 5+ launches: Must have 2+ bonded tokens
+  if (totalLaunches >= 5 && bondedCount < 2) {
+    return "none";
+  }
+  
+  // Must have at least 1 bonded token
+  if (bondedCount < 1) {
     return "none";
   }
   
@@ -144,6 +150,9 @@ export function getCreatorTier(bondedCount: number, hits100kCount: number, total
   
   // 2 bonded tokens qualifies only with very high rate (33%+)
   if (bondedCount >= 2 && bondingRate >= 0.33) return "proven";
+  
+  // 1 bonded token qualifies ONLY if under 5 launches with 25%+ rate
+  if (bondedCount >= 1 && totalLaunches < 5 && bondingRate >= 0.25) return "proven";
 
   return "none";
 }

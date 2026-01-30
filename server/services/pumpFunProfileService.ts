@@ -26,13 +26,20 @@ export async function verifyCreatorNotSpam(
   let result: CreatorVerification = { isSpam: false, actualLaunches: trackedLaunches };
   const bondingRate = trackedLaunches > 0 ? trackedBondedCount / trackedLaunches : 0;
 
-  // RULE 1: ABSOLUTE MINIMUM - Must have 2+ bonded tokens
-  // Single lucky hits are almost always spam
-  if (trackedBondedCount < 2) {
+  // RULE 1: Bonded token requirements based on launch count
+  // Under 5 launches: 1 bonded is OK (new creator)
+  // 5+ launches: Must have 2+ bonded tokens
+  if (trackedBondedCount < 1) {
     result = {
       isSpam: true,
       actualLaunches: trackedLaunches,
-      reason: `Only ${trackedBondedCount} bonded token(s) - minimum 2 required`,
+      reason: `No bonded tokens`,
+    };
+  } else if (trackedLaunches >= 5 && trackedBondedCount < 2) {
+    result = {
+      isSpam: true,
+      actualLaunches: trackedLaunches,
+      reason: `Only ${trackedBondedCount} bonded in ${trackedLaunches} launches - need 2+`,
     };
   }
   
