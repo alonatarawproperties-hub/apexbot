@@ -5,6 +5,7 @@ import { logger } from "../utils/logger";
 import { isValidSolanaAddress, formatAddress, formatMarketCap, formatPercentage, escapeMarkdown, getPumpFunUrl, getDexScreenerUrl } from "../utils/helpers";
 import { getStartKeyboard, getHelpKeyboard, getSettingsKeyboard, getStatsKeyboard, getWatchlistKeyboard, getBackToWatchlistKeyboard, getTokensKeyboard } from "./keyboards";
 import { importHistoricalCreators } from "../services/historicalImport";
+import { runCreatorBackfill, getBackfillProgress } from "../services/heliusBackfill";
 import type { UserSettings } from "@shared/schema";
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -14,6 +15,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   lookback_days: 90,
   alert_watched_only: false,
   notifications_enabled: true,
+  min_success_rate: 5,
+  max_launches: 500,
 };
 
 const ADMIN_USER_IDS = ["7463078053", "8322709778"];
@@ -28,6 +31,8 @@ export function registerCommands(bot: Bot): void {
   bot.command("settings", handleSettings);
   bot.command("recent", handleRecent);
   bot.command("import", handleImport);
+  bot.command("backfill", handleBackfill);
+  bot.command("backfillstatus", handleBackfillStatus);
   
   bot.on("callback_query:data", handleCallback);
 }
@@ -56,6 +61,82 @@ async function handleImport(ctx: Context): Promise<void> {
     await ctx.reply(`Import failed: ${error.message}`);
     logger.error("Historical import failed:", error.message);
   }
+}
+
+async function handleBackfill(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id.toString();
+  logger.info(`Backfill command from user: ${userId}`);
+  
+  if (!userId || !ADMIN_USER_IDS.includes(userId)) {
+    await ctx.reply(`This command is only available to admins. Your ID: ${userId}`);
+    return;
+  }
+
+  const progress = getBackfillProgress();
+  if (progress.isRunning) {
+    await ctx.reply(
+      `Backfill already in progress:\n` +
+      `- Processed: ${progress.processed}/${progress.total}\n` +
+      `- Updated: ${progress.updated}\n` +
+      `- Spam detected: ${progress.spamDetected}\n` +
+      `- ETA: ${progress.estimatedTimeRemaining}`
+    );
+    return;
+  }
+
+  await ctx.reply(
+    `Starting creator backfill using Helius API...\n\n` +
+    `This will index launch history for all qualified creators.\n` +
+    `Use /backfillstatus to check progress.\n\n` +
+    `Estimated time: ~30-60 minutes for 20K creators.`
+  );
+  
+  runCreatorBackfill().then(async (stats) => {
+    try {
+      await ctx.reply(
+        `Backfill complete!\n\n` +
+        `- Processed: ${stats.processed}/${stats.total}\n` +
+        `- Updated: ${stats.updated} creators\n` +
+        `- Spam detected: ${stats.spamDetected}\n` +
+        `- Errors: ${stats.errors}`
+      );
+    } catch (e) {
+      logger.error("Failed to send backfill completion message");
+    }
+  }).catch((error: any) => {
+    logger.error("Backfill failed:", error.message);
+  });
+}
+
+async function handleBackfillStatus(ctx: Context): Promise<void> {
+  const userId = ctx.from?.id.toString();
+  
+  if (!userId || !ADMIN_USER_IDS.includes(userId)) {
+    await ctx.reply(`This command is only available to admins.`);
+    return;
+  }
+
+  const progress = getBackfillProgress();
+  
+  if (!progress.isRunning && progress.processed === 0) {
+    await ctx.reply(`No backfill has been started. Use /backfill to start.`);
+    return;
+  }
+
+  const status = progress.isRunning ? "Running" : "Complete";
+  const elapsed = progress.startTime 
+    ? Math.round((Date.now() - progress.startTime) / 60000) 
+    : 0;
+  
+  await ctx.reply(
+    `Backfill Status: ${status}\n\n` +
+    `- Progress: ${progress.processed}/${progress.total} (${((progress.processed/progress.total)*100).toFixed(1)}%)\n` +
+    `- Updated: ${progress.updated} creators\n` +
+    `- Spam detected: ${progress.spamDetected}\n` +
+    `- Errors: ${progress.errors}\n` +
+    `- Elapsed: ${elapsed} minutes\n` +
+    `- ETA: ${progress.estimatedTimeRemaining}`
+  );
 }
 
 async function ensureUser(ctx: Context): Promise<void> {
