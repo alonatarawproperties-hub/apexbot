@@ -1,5 +1,7 @@
 import { logger } from "../utils/logger";
 import * as db from "../db";
+import { getCreatorLaunchCount } from "./creatorLaunchCounter";
+import { checkIfSpamLauncher } from "./spamDetection";
 
 const MORALIS_API_URL = "https://solana-gateway.moralis.io";
 
@@ -98,41 +100,77 @@ export async function importHistoricalCreators(maxTokens: number = 1000): Promis
 
   logger.info(`Found ${creatorSet.size} unique creators from ${totalFetched} graduated tokens`);
 
-  // Since these are from Moralis graduated tokens, they already bonded
-  // We don't need Bitquery validation - just import them directly
+  // Verify each creator via Helius to get REAL launch counts and filter spam
   const creatorArray = Array.from(creatorSet);
+  logger.info(`[IMPORT] Verifying ${creatorArray.length} creators via Helius...`);
+  
   for (const creatorAddress of creatorArray) {
     try {
       const existingCreator = db.getCreator(creatorAddress);
       
-      // Skip if already has bonded token
-      if (existingCreator && existingCreator.bonded_count >= 1) {
+      // Skip if already verified and qualified
+      if (existingCreator && existingCreator.bonded_count >= 1 && existingCreator.is_qualified === 1) {
         stats.skipped++;
         continue;
       }
 
-      // Count how many graduated tokens this creator has from our batch
-      const creatorBondedCount = 1; // At least 1 since they're in graduated list
+      // CRITICAL: Get actual launch count from Helius
+      const launchData = await getCreatorLaunchCount(creatorAddress);
+      const actualLaunches = launchData.actualLaunches;
       
+      // At least 1 bonded since they're in graduated list
+      const bondedCount = (existingCreator?.bonded_count || 0) + 1;
+      const hits100k = existingCreator?.hits_100k_count || 0;
+      
+      // Run spam detection with actual launch count
+      const spamCheck = await checkIfSpamLauncher(
+        creatorAddress,
+        bondedCount,
+        hits100k,
+        actualLaunches
+      );
+      
+      if (spamCheck.isSpam) {
+        logger.info(`[SPAM BLOCKED] ${creatorAddress.slice(0, 8)}: ${spamCheck.reason} (${bondedCount}/${actualLaunches} bonded)`);
+        stats.spam++;
+        
+        // Mark as not qualified
+        db.upsertCreator({
+          address: creatorAddress,
+          total_launches: actualLaunches,
+          bonded_count: bondedCount,
+          hits_100k_count: hits100k,
+          best_mc_ever: existingCreator?.best_mc_ever || 69000,
+          is_qualified: 0,
+          qualification_reason: spamCheck.reason || "spam_detected",
+          last_updated: null,
+        });
+        continue;
+      }
+      
+      // Passed spam check - import as qualified
       db.upsertCreator({
         address: creatorAddress,
-        total_launches: existingCreator?.total_launches || 1,
-        bonded_count: (existingCreator?.bonded_count || 0) + creatorBondedCount,
-        hits_100k_count: existingCreator?.hits_100k_count || 0,
+        total_launches: actualLaunches,
+        bonded_count: bondedCount,
+        hits_100k_count: hits100k,
         best_mc_ever: existingCreator?.best_mc_ever || 69000,
         is_qualified: 1,
-        qualification_reason: "graduated_token_import",
+        qualification_reason: `graduated_import_verified: ${bondedCount}/${actualLaunches} bonded`,
         last_updated: null,
       });
 
       stats.imported++;
       
-      if (stats.imported % 50 === 0) {
-        logger.info(`Import progress: ${stats.imported} creators imported`);
+      if (stats.imported % 20 === 0) {
+        logger.info(`[IMPORT] Progress: ${stats.imported} imported, ${stats.spam} spam blocked`);
       }
+      
+      // Rate limit - wait between Helius calls
+      await new Promise(resolve => setTimeout(resolve, 150));
 
     } catch (error: any) {
-      logger.error(`Failed to import creator ${creatorAddress.slice(0, 8)}...: ${error.message}`);
+      logger.error(`Failed to verify creator ${creatorAddress.slice(0, 8)}...: ${error.message}`);
       stats.skipped++;
     }
   }
