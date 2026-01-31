@@ -19,7 +19,7 @@ import type { SniperSettings, Position } from "@shared/schema";
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
 
 // Conversation state for custom input
-type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp" | "b_jito" | "b_sl" | "b_tp_pct" | "b_tp_mult" | "b_moon" | "b_moon_mult" | "b_buy" | "b_slip" | "b_straight_tp" | "b_max_pos" | "b_priority";
+type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp" | "b_jito" | "b_sl" | "b_tp_pct" | "b_tp_mult" | "b_moon" | "b_moon_mult" | "b_buy" | "b_slip" | "b_straight_tp" | "b_max_pos" | "b_priority" | "import_wallet";
 interface PendingInput {
   type: InputType;
   tpIndex?: number; // For editing specific TP bracket
@@ -57,6 +57,12 @@ export async function handleCustomInput(ctx: Context, text: string): Promise<boo
   const pending = pendingInputs.get(userId);
   if (!pending) return false;
   
+  if (pending.type === "import_wallet") {
+    pendingInputs.delete(userId);
+    await handlePrivateKeyImport(ctx, text);
+    return true;
+  }
+
   const value = parseFloat(text);
   if (isNaN(value)) {
     await ctx.reply("Please enter a valid number.");
@@ -1016,11 +1022,13 @@ Send SOL to this address to start sniping\\.`,
 }
 
 async function promptImportWallet(ctx: Context, userId: string): Promise<void> {
+  pendingInputs.set(userId, { type: "import_wallet" });
   await ctx.editMessageText(
     `📥 *IMPORT WALLET*
 
 Send your private key in one of these formats:
 • Base64 \\(88 characters\\)
+• Base58 \\(varies\\)
 • Hex \\(128 characters\\)
 • JSON array \\[1,2,3\\.\\.\\.\\]
 
@@ -1587,6 +1595,7 @@ Your wallet is now ready for sniping\\.`,
 
 Invalid private key format\\. Use:
 • Base64 \\(88 characters\\)
+• Base58 \\(varies\\)
 • Hex \\(128 characters\\)
 • JSON array`,
       { parse_mode: "MarkdownV2" }
