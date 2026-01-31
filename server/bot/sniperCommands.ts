@@ -317,6 +317,12 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
       case "edit_tp":
         await showTPMenu(ctx, userId);
         break;
+      case "edit_max_pos":
+        await showMaxPositionsMenu(ctx, userId);
+        break;
+      case "set_max_pos":
+        await setMaxPositions(ctx, userId, parseInt(value));
+        break;
       case "new_wallet":
         await createNewWallet(ctx, userId);
         break;
@@ -394,6 +400,9 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
 async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
   const settings = db.getOrCreateSniperSettings(userId);
   
+  const openCount = db.getUserOpenPositionCount(userId);
+  const maxPos = settings.max_open_positions ?? 5;
+  
   const keyboard = new InlineKeyboard()
     .text(`Buy: ${settings.buy_amount_sol} SOL`, "sniper:edit_buy")
     .text(`Slip: ${settings.slippage_percent}%`, "sniper:edit_slip")
@@ -402,6 +411,8 @@ async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
     .text(`SL: -${settings.stop_loss_percent}%`, "sniper:edit_sl")
     .row()
     .text("📈 Edit Take Profit", "sniper:edit_tp")
+    .row()
+    .text(`📊 Max Positions: ${maxPos}`, "sniper:edit_max_pos")
     .row()
     .text(settings.auto_buy_enabled ? "🟢 Auto-Buy ON" : "🔴 Auto-Buy OFF", "sniper:toggle_autobuy")
     .row()
@@ -428,6 +439,8 @@ async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
 📈 *Take Profit:*${tpText}
 
 📉 *Stop Loss:* ${formatMarkdownValue(`-${settings.stop_loss_percent}`)}%
+
+📊 *Max Positions:* ${formatMarkdownValue(maxPos)} \\(${formatMarkdownValue(openCount)} open\\)
 
 🎯 *Auto\\-Buy:* ${settings.auto_buy_enabled ? "Enabled" : "Disabled"}`,
     {
@@ -581,6 +594,50 @@ No trades yet\\.`,
     parse_mode: "MarkdownV2",
     reply_markup: keyboard,
   });
+}
+
+async function showMaxPositionsMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const currentMax = settings.max_open_positions ?? 5;
+  const openCount = db.getUserOpenPositionCount(userId);
+  
+  const keyboard = new InlineKeyboard()
+    .text("3", "sniper:set_max_pos:3")
+    .text("5", "sniper:set_max_pos:5")
+    .text("10", "sniper:set_max_pos:10")
+    .row()
+    .text("15", "sniper:set_max_pos:15")
+    .text("20", "sniper:set_max_pos:20")
+    .text("∞", "sniper:set_max_pos:999")
+    .row()
+    .text("← Back", "sniper:settings");
+  
+  await ctx.editMessageText(
+    `📊 *MAX OPEN POSITIONS*
+
+Current limit: *${currentMax === 999 ? "Unlimited" : currentMax}*
+Currently open: *${openCount}*
+
+When you reach the limit, auto\\-snipe will pause until you sell a position\\.
+
+Select your max positions limit:`,
+    {
+      parse_mode: "MarkdownV2",
+      reply_markup: keyboard,
+    }
+  );
+}
+
+async function setMaxPositions(ctx: Context, userId: string, value: number): Promise<void> {
+  // Validate input
+  if (isNaN(value) || value < 1) {
+    await ctx.answerCallbackQuery({ text: "Invalid value" });
+    return;
+  }
+  db.updateSniperSettings(userId, { max_open_positions: value });
+  const text = value >= 999 ? "Unlimited positions" : `Max positions: ${value}`;
+  await ctx.answerCallbackQuery({ text });
+  await showSettingsMenu(ctx, userId);
 }
 
 async function toggleAutoBuy(ctx: Context, userId: string): Promise<void> {

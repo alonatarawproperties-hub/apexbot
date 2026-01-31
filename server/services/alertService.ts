@@ -98,6 +98,21 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
       if (sniperSettings.auto_buy_enabled) {
         const wallet = db.getWallet(user.telegram_id);
         if (wallet) {
+          // Check max open positions limit (999 = unlimited, skip check)
+          const maxPositions = sniperSettings.max_open_positions ?? 5;
+          if (maxPositions < 999) {
+            const openCount = db.getUserOpenPositionCount(user.telegram_id);
+            if (openCount >= maxPositions) {
+              botInstance?.api.sendMessage(user.telegram_id,
+                `⏸️ *AUTO-SNIPE PAUSED*\n\n` +
+                `Max positions limit reached (${openCount}/${maxPositions})\n` +
+                `Sell a position to resume auto-sniping.`,
+                { parse_mode: "Markdown" }
+              ).catch((e) => logger.error(`Failed to send max positions msg: ${e.message}`));
+              return;
+            }
+          }
+          
           snipeToken(user.telegram_id, token.address, token.symbol, token.name).then((result) => {
             const symbol = token.symbol || "???";
             if (result.success) {
@@ -261,6 +276,22 @@ export async function sendBundleAlert(
     if (autoSnipe) {
       const wallet = db.getWallet(user.telegram_id);
       if (wallet) {
+        // Check max open positions limit (999 = unlimited, skip check)
+        const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
+        const maxPositions = sniperSettings.max_open_positions ?? 5;
+        if (maxPositions < 999) {
+          const openCount = db.getUserOpenPositionCount(user.telegram_id);
+          if (openCount >= maxPositions) {
+            botInstance?.api.sendMessage(user.telegram_id,
+              `⏸️ *BUNDLE SNIPE PAUSED*\n\n` +
+              `Max positions limit reached (${openCount}/${maxPositions})\n` +
+              `Sell a position to resume auto-sniping.`,
+              { parse_mode: "Markdown" }
+            ).catch((e) => logger.error(`Failed to send max positions msg: ${e.message}`));
+            return;
+          }
+        }
+        
         snipeToken(user.telegram_id, tokenAddress, tokenSymbol, tokenName, buyAmountSOL).then((result) => {
           if (result.success) {
             botInstance?.api.sendMessage(user.telegram_id,

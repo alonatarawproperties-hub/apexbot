@@ -127,6 +127,7 @@ function runMigrations(): void {
       moon_bag_percent REAL DEFAULT 0,
       moon_bag_multiplier REAL DEFAULT 0,
       stop_loss_percent REAL DEFAULT 50,
+      max_open_positions INTEGER DEFAULT 5,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(telegram_id)
@@ -179,6 +180,13 @@ function runMigrations(): void {
   // Safe migration: add moon_bag_multiplier column if it doesn't exist
   try {
     db.exec(`ALTER TABLE sniper_settings ADD COLUMN moon_bag_multiplier REAL DEFAULT 0`);
+  } catch (e: any) {
+    // Column already exists - ignore error
+  }
+  
+  // Safe migration: add max_open_positions column if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE sniper_settings ADD COLUMN max_open_positions INTEGER DEFAULT 5`);
   } catch (e: any) {
     // Column already exists - ignore error
   }
@@ -484,8 +492,8 @@ export function getSniperSettings(userId: string): SniperSettings | undefined {
 
 export function createSniperSettings(settings: InsertSniperSettings): SniperSettings {
   db.prepare(`
-    INSERT INTO sniper_settings (user_id, auto_buy_enabled, buy_amount_sol, slippage_percent, jito_tip_sol, priority_fee_lamports, tp_brackets, moon_bag_percent, moon_bag_multiplier, stop_loss_percent)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sniper_settings (user_id, auto_buy_enabled, buy_amount_sol, slippage_percent, jito_tip_sol, priority_fee_lamports, tp_brackets, moon_bag_percent, moon_bag_multiplier, stop_loss_percent, max_open_positions)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     settings.user_id,
     settings.auto_buy_enabled ? 1 : 0,
@@ -496,7 +504,8 @@ export function createSniperSettings(settings: InsertSniperSettings): SniperSett
     JSON.stringify(settings.tp_brackets),
     settings.moon_bag_percent,
     settings.moon_bag_multiplier || 0,
-    settings.stop_loss_percent
+    settings.stop_loss_percent,
+    settings.max_open_positions ?? 5
   );
   return getSniperSettings(settings.user_id)!;
 }
@@ -514,6 +523,7 @@ export function updateSniperSettings(userId: string, updates: Partial<InsertSnip
   if (updates.moon_bag_percent !== undefined) { fields.push("moon_bag_percent = ?"); values.push(updates.moon_bag_percent); }
   if (updates.moon_bag_multiplier !== undefined) { fields.push("moon_bag_multiplier = ?"); values.push(updates.moon_bag_multiplier); }
   if (updates.stop_loss_percent !== undefined) { fields.push("stop_loss_percent = ?"); values.push(updates.stop_loss_percent); }
+  if (updates.max_open_positions !== undefined) { fields.push("max_open_positions = ?"); values.push(updates.max_open_positions); }
   
   if (fields.length > 0) {
     fields.push("updated_at = ?");
@@ -542,6 +552,7 @@ export function getOrCreateSniperSettings(userId: string): SniperSettings {
       moon_bag_percent: 0,
       moon_bag_multiplier: 0,
       stop_loss_percent: 50,
+      max_open_positions: 5,
     });
   }
   return settings;
@@ -604,6 +615,11 @@ export function getOpenPositions(): Position[] {
     tp2_hit: Boolean(row.tp2_hit),
     tp3_hit: Boolean(row.tp3_hit),
   }));
+}
+
+export function getUserOpenPositionCount(userId: string): number {
+  const row = db.prepare("SELECT COUNT(*) as count FROM positions WHERE user_id = ? AND (status = 'open' OR status = 'partial')").get(userId) as any;
+  return row?.count || 0;
 }
 
 export function updatePosition(id: number, updates: Partial<Position>): void {

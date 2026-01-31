@@ -183,6 +183,7 @@ export const sniperSettingsSchema = z.object({
   moon_bag_percent: z.number().default(0),
   moon_bag_multiplier: z.number().default(0),
   stop_loss_percent: z.number().default(50),
+  max_open_positions: z.number().default(5),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
