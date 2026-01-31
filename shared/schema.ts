@@ -117,6 +117,11 @@ export const botStatusSchema = z.object({
     delivered: z.number(),
     failed: z.number(),
   }).optional(),
+  alertsByType: z.object({
+    creator: z.number(),
+    bundle: z.number(),
+    watched: z.number(),
+  }).optional(),
   lastWebhookReceived: z.string().nullable(),
   uptime: z.number(),
 });

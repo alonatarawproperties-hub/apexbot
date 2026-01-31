@@ -35,6 +35,7 @@ export async function registerRoutes(
         qualifiedCreators: db.getQualifiedCreatorCount(),
         alertsSentToday: db.getAlertsSentToday(),
         alertStats: db.getAlertAttemptsTodayStats(),
+        alertsByType: db.getAlertsByTypeToday(),
         lastWebhookReceived: null,
         uptime: Math.floor((Date.now() - startTime) / 1000),
       };

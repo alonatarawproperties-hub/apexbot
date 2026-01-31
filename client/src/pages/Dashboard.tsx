@@ -173,9 +173,15 @@ export default function Dashboard() {
                 icon={Coins}
               />
               <StatCard
-                title="Alerts Sent"
-                value={status?.alertsSentToday ?? 0}
-                description={status?.alertStats?.failed ? `${status.alertStats.failed} failed` : undefined}
+                title="Creator Alerts"
+                value={status?.alertsByType?.creator ?? 0}
+                description="Qualified creator launches"
+                icon={Trophy}
+              />
+              <StatCard
+                title="Bundle Alerts"
+                value={status?.alertsByType?.bundle ?? 0}
+                description="Dev buy detections"
                 icon={Bell}
               />
             </>

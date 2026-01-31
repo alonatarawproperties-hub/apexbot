@@ -403,6 +403,14 @@ export function getAlertAttemptsTodayStats(): { delivered: number; failed: numbe
   return { delivered: delivered.count, failed: failed.count };
 }
 
+export function getAlertsByTypeToday(): { creator: number; bundle: number; watched: number } {
+  const today = new Date().toISOString().split("T")[0];
+  const creator = db.prepare("SELECT COUNT(*) as count FROM alerts_log WHERE DATE(sent_at) = ? AND delivered = 1 AND alert_type = 'qualified'").get(today) as any;
+  const bundle = db.prepare("SELECT COUNT(*) as count FROM alerts_log WHERE DATE(sent_at) = ? AND delivered = 1 AND alert_type = 'bundle'").get(today) as any;
+  const watched = db.prepare("SELECT COUNT(*) as count FROM alerts_log WHERE DATE(sent_at) = ? AND delivered = 1 AND alert_type = 'watched'").get(today) as any;
+  return { creator: creator.count, bundle: bundle.count, watched: watched.count };
+}
+
 export function getDatabase(): Database.Database {
   return db;
 }
