@@ -239,11 +239,30 @@ export async function snipeToken(
       return { success: false, error: `Send failed: ${sendError.message}` };
     }
     
-    // Wait a moment for token account to update
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Wait for token account to update and verify tokens were received
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
-    const tokensBought = await getTokenBalance(connection, keypair.publicKey, tokenMint);
-    const entryPrice = tokensBought > 0 ? actualBuyAmount / tokensBought : 0;
+    let tokensBought = await getTokenBalance(connection, keypair.publicKey, tokenMint);
+    
+    // If no tokens found, wait longer and retry (transaction might still be processing)
+    if (tokensBought === 0) {
+      logger.warn(`No tokens found after first check, waiting and retrying...`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      tokensBought = await getTokenBalance(connection, keypair.publicKey, tokenMint);
+    }
+    
+    // CRITICAL: Only create position if we actually received tokens
+    // This prevents fake positions when transactions fail/drop
+    if (tokensBought === 0) {
+      logger.error(`Transaction sent but no tokens received - tx may have failed: ${txSignature}`);
+      return { 
+        success: false, 
+        error: `Transaction sent but no tokens received. Check tx: ${txSignature?.slice(0, 20)}...`,
+        txSignature 
+      };
+    }
+    
+    const entryPrice = actualBuyAmount / tokensBought;
     
     const position = db.createPosition({
       user_id: userId,
@@ -276,7 +295,7 @@ export async function snipeToken(
       trigger_reason: "auto_snipe",
     });
     
-    logger.info(`Sniped ${tokenSymbol || tokenAddress.slice(0, 8)} for user ${userId}: ${tokensBought} tokens`);
+    logger.info(`Sniped ${tokenSymbol || tokenAddress.slice(0, 8)} for user ${userId}: ${tokensBought} tokens @ ${entryPrice.toExponential(4)} SOL/token`);
     
     return { 
       success: true, 
