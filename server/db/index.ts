@@ -124,11 +124,13 @@ function runMigrations(): void {
       priority_fee_lamports INTEGER DEFAULT 100000,
       tp_brackets TEXT DEFAULT '[{"percentage":50,"multiplier":2},{"percentage":30,"multiplier":5},{"percentage":20,"multiplier":10}]',
       moon_bag_percent REAL DEFAULT 0,
+      moon_bag_multiplier REAL DEFAULT 0,
       stop_loss_percent REAL DEFAULT 50,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(telegram_id)
     );
+    
 
     CREATE TABLE IF NOT EXISTS positions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,6 +174,13 @@ function runMigrations(): void {
     CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
     CREATE INDEX IF NOT EXISTS idx_trade_history_user ON trade_history(user_id);
   `);
+  
+  // Safe migration: add moon_bag_multiplier column if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE sniper_settings ADD COLUMN moon_bag_multiplier REAL DEFAULT 0`);
+  } catch (e: any) {
+    // Column already exists - ignore error
+  }
 }
 
 // User operations
@@ -459,8 +468,8 @@ export function getSniperSettings(userId: string): SniperSettings | undefined {
 
 export function createSniperSettings(settings: InsertSniperSettings): SniperSettings {
   db.prepare(`
-    INSERT INTO sniper_settings (user_id, auto_buy_enabled, buy_amount_sol, slippage_percent, jito_tip_sol, priority_fee_lamports, tp_brackets, moon_bag_percent, stop_loss_percent)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sniper_settings (user_id, auto_buy_enabled, buy_amount_sol, slippage_percent, jito_tip_sol, priority_fee_lamports, tp_brackets, moon_bag_percent, moon_bag_multiplier, stop_loss_percent)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     settings.user_id,
     settings.auto_buy_enabled ? 1 : 0,
@@ -470,6 +479,7 @@ export function createSniperSettings(settings: InsertSniperSettings): SniperSett
     settings.priority_fee_lamports,
     JSON.stringify(settings.tp_brackets),
     settings.moon_bag_percent,
+    settings.moon_bag_multiplier || 0,
     settings.stop_loss_percent
   );
   return getSniperSettings(settings.user_id)!;
@@ -486,6 +496,7 @@ export function updateSniperSettings(userId: string, updates: Partial<InsertSnip
   if (updates.priority_fee_lamports !== undefined) { fields.push("priority_fee_lamports = ?"); values.push(updates.priority_fee_lamports); }
   if (updates.tp_brackets !== undefined) { fields.push("tp_brackets = ?"); values.push(JSON.stringify(updates.tp_brackets)); }
   if (updates.moon_bag_percent !== undefined) { fields.push("moon_bag_percent = ?"); values.push(updates.moon_bag_percent); }
+  if (updates.moon_bag_multiplier !== undefined) { fields.push("moon_bag_multiplier = ?"); values.push(updates.moon_bag_multiplier); }
   if (updates.stop_loss_percent !== undefined) { fields.push("stop_loss_percent = ?"); values.push(updates.stop_loss_percent); }
   
   if (fields.length > 0) {
@@ -512,6 +523,7 @@ export function getOrCreateSniperSettings(userId: string): SniperSettings {
         { percentage: 20, multiplier: 10 },
       ],
       moon_bag_percent: 0,
+      moon_bag_multiplier: 0,
       stop_loss_percent: 50,
     });
   }
