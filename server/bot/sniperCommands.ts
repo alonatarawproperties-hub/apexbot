@@ -1497,9 +1497,9 @@ async function promptBundleEditBuy(ctx: Context, userId: string): Promise<void> 
     .text("← Back", "sniper:bundle_settings");
   
   await ctx.editMessageText(
-    `💰 *BUNDLE BUY AMOUNT*
+    `*BUNDLE BUY AMOUNT*
 
-Current: ${settings.bundle_buy_amount_sol ?? 0.1} SOL
+Current: ${formatMarkdownValue(settings.bundle_buy_amount_sol ?? 0.1)} SOL
 
 Select amount:`,
     { parse_mode: "MarkdownV2", reply_markup: keyboard }
@@ -1519,9 +1519,9 @@ async function promptBundleEditSlippage(ctx: Context, userId: string): Promise<v
     .text("← Back", "sniper:bundle_settings");
   
   await ctx.editMessageText(
-    `📊 *BUNDLE SLIPPAGE*
+    `*BUNDLE SLIPPAGE*
 
-Current: ${settings.bundle_slippage_percent ?? 20}%
+Current: ${formatMarkdownValue(settings.bundle_slippage_percent ?? 20)}%
 
 Select slippage:`,
     { parse_mode: "MarkdownV2", reply_markup: keyboard }
@@ -1541,11 +1541,11 @@ async function promptBundleEditJito(ctx: Context, userId: string): Promise<void>
     .text("← Back", "sniper:bundle_settings");
   
   await ctx.editMessageText(
-    `⚡ *BUNDLE JITO TIP*
+    `*BUNDLE JITO TIP*
 
-Current: ${settings.bundle_jito_tip_sol ?? 0.005} SOL
+Current: ${formatMarkdownValue(settings.bundle_jito_tip_sol ?? 0.005)} SOL
 
-Higher tip = faster execution`,
+Higher tip \\= faster execution`,
     { parse_mode: "MarkdownV2", reply_markup: keyboard }
   );
 }
@@ -1564,9 +1564,9 @@ async function promptBundleEditStopLoss(ctx: Context, userId: string): Promise<v
     .text("← Back", "sniper:bundle_settings");
   
   await ctx.editMessageText(
-    `📉 *BUNDLE STOP LOSS*
+    `*BUNDLE STOP LOSS*
 
-Current: \\-${settings.bundle_stop_loss_percent ?? 50}%
+Current: \\-${formatMarkdownValue(settings.bundle_stop_loss_percent ?? 50)}%
 
 Sells 100% when price drops by this %`,
     { parse_mode: "MarkdownV2", reply_markup: keyboard }
