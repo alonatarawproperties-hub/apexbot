@@ -597,7 +597,7 @@ export function getOrCreateSniperSettings(userId: string): SniperSettings {
       buy_amount_sol: 0.1,
       slippage_percent: 20,
       jito_tip_sol: 0.005,
-      priority_fee_lamports: 100000,
+      priority_fee_lamports: 500000,
       tp_brackets: [
         { percentage: 50, multiplier: 2 },
         { percentage: 30, multiplier: 5 },
@@ -609,7 +609,7 @@ export function getOrCreateSniperSettings(userId: string): SniperSettings {
       max_open_positions: 5,
       bundle_auto_buy_enabled: false,
       bundle_buy_amount_sol: 0.1,
-      bundle_slippage_percent: 20,
+      bundle_slippage_percent: 50,
       bundle_jito_tip_sol: 0.005,
       bundle_tp_brackets: [
         { percentage: 50, multiplier: 2 },
