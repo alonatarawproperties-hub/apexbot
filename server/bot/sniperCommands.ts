@@ -1071,8 +1071,7 @@ async function promptDeleteWallet(ctx: Context, userId: string): Promise<void> {
     return;
   }
 
-  await editOrReply(
-    ctx,
+  await ctx.editMessageText(
     `🗑 *DELETE WALLET*
 
 This will remove the stored wallet from the bot\\.
@@ -1092,10 +1091,6 @@ Are you sure?`,
 async function deleteWallet(ctx: Context, userId: string): Promise<void> {
   const deleted = db.deleteWallet(userId);
   await ctx.answerCallbackQuery({ text: deleted ? "Wallet deleted" : "No wallet found" });
-  if (deleted) {
-    await ctx.deleteMessage().catch(() => {});
-    await ctx.reply("✅ Wallet deleted. You can generate or import a new one.", { parse_mode: "MarkdownV2" });
-  }
   await showWalletMenu(ctx, userId);
 }
 async function showWalletAddress(ctx: Context, userId: string): Promise<void> {
