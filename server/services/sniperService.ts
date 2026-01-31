@@ -42,32 +42,39 @@ async function getPumpPortalTransaction(
   priorityFee: number,
   denominatedInSol: boolean = true
 ): Promise<{ success: boolean; txBytes?: Uint8Array; error?: string }> {
+  const requestBody = {
+    publicKey,
+    action,
+    mint,
+    denominatedInSol: denominatedInSol.toString(),
+    amount,
+    slippage,
+    priorityFee,
+    pool: "pump"
+  };
+  
+  logger.info(`[PUMPPORTAL] Request: ${action} ${amount} SOL for ${mint.slice(0,8)}...`);
+  logger.info(`[PUMPPORTAL] Params: slip=${slippage}%, priorityFee=${priorityFee} SOL`);
+  
   try {
     const response = await fetch(PUMPPORTAL_API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        publicKey,
-        action,
-        mint,
-        denominatedInSol: denominatedInSol.toString(),
-        amount,
-        slippage,
-        priorityFee,
-        pool: "pump"
-      })
+      body: JSON.stringify(requestBody)
     });
     
     if (response.status === 200) {
       const data = await response.arrayBuffer();
-      return { success: true, txBytes: new Uint8Array(data) };
+      const txBytes = new Uint8Array(data);
+      logger.info(`[PUMPPORTAL] Success: received ${txBytes.length} bytes for transaction`);
+      return { success: true, txBytes };
     } else {
       const errorText = await response.text();
-      logger.error(`PumpPortal API error: ${response.status} - ${errorText}`);
+      logger.error(`[PUMPPORTAL] API error ${response.status}: ${errorText}`);
       return { success: false, error: `PumpPortal error: ${errorText}` };
     }
   } catch (error: any) {
-    logger.error(`PumpPortal request failed: ${error.message}`);
+    logger.error(`[PUMPPORTAL] Request failed: ${error.message}`);
     return { success: false, error: error.message };
   }
 }
@@ -165,12 +172,15 @@ export async function snipeToken(
     
     // Send the versioned transaction directly
     try {
-      txSignature = await connection.sendRawTransaction(tx.serialize(), {
+      const serializedTx = tx.serialize();
+      logger.info(`[TX] Sending ${serializedTx.length} bytes to RPC...`);
+      
+      txSignature = await connection.sendRawTransaction(serializedTx, {
         skipPreflight: true,
         maxRetries: 3,
       });
       
-      logger.info(`Transaction sent: ${txSignature}`);
+      logger.info(`[TX] Sent successfully! Signature: ${txSignature}`);
       
       // Try to confirm with timeout, but don't fail if it times out
       let confirmed = false;
@@ -212,26 +222,34 @@ export async function snipeToken(
         }
       } catch (confirmErr: any) {
         // Timeout or other confirmation error - transaction may still have succeeded
-        logger.warn(`Confirmation uncertain for ${txSignature}: ${confirmErr.message}`);
+        logger.warn(`[TX] Confirmation uncertain for ${txSignature}: ${confirmErr.message}`);
       }
       
       if (confirmError) {
+        logger.error(`[TX] Transaction failed with error: ${confirmError}`);
         return { success: false, error: confirmError };
       }
       
       // If not confirmed but no error, check if transaction exists on-chain
       if (!confirmed) {
+        logger.info(`[TX] Not confirmed yet, checking status...`);
         await new Promise(resolve => setTimeout(resolve, 3000));
         try {
           const status = await connection.getSignatureStatus(txSignature);
+          logger.info(`[TX] Signature status: ${JSON.stringify(status.value)}`);
           if (status.value?.err) {
+            logger.error(`[TX] Transaction error on-chain: ${JSON.stringify(status.value.err)}`);
             return { success: false, error: "Transaction failed on-chain" };
           }
           // Transaction exists and no error - likely succeeded
           confirmed = status.value !== null;
-        } catch (e) {
+          logger.info(`[TX] Confirmed via status check: ${confirmed}`);
+        } catch (e: any) {
+          logger.warn(`[TX] Status check failed: ${e.message}`);
           // Continue anyway - we'll check token balance
         }
+      } else {
+        logger.info(`[TX] Confirmed!`);
       }
       
     } catch (sendError: any) {
