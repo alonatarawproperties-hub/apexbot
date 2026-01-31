@@ -10,6 +10,12 @@ The application consists of four main components:
 3. **Dashboard** - Web interface for monitoring system status and statistics
 4. **Sniper Bot** - Automated token buying with TP/SL brackets and Jito MEV protection
 
+## Quick Start (Self-Hosting on a Server)
+
+The step-by-step guide lives here:
+
+- **`SETUP_GUIDE.md`** (simple, checklist-style format)
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
