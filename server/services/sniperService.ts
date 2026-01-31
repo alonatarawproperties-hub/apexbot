@@ -93,13 +93,22 @@ export async function snipeToken(
   }
   
   const settings = db.getOrCreateSniperSettings(userId);
-  
+
   // Use bundle-specific settings if mode is "bundle"
   const actualBuyAmount = buyAmountOverride ?? (mode === "bundle" ? settings.bundle_buy_amount_sol : settings.buy_amount_sol) ?? 0.1;
   const jitoTip = mode === "bundle" ? (settings.bundle_jito_tip_sol ?? 0.005) : settings.jito_tip_sol;
   const slippage = mode === "bundle" ? (settings.bundle_slippage_percent ?? 20) : settings.slippage_percent;
   const priorityFee = settings.priority_fee_lamports / 1_000_000; // Convert lamports to SOL for API
-  
+
+  // Minimum buy amount for pump.fun - transactions below this will fail or receive 0 tokens
+  const MIN_BUY_AMOUNT_SOL = 0.005;
+  if (actualBuyAmount < MIN_BUY_AMOUNT_SOL) {
+    return {
+      success: false,
+      error: `Buy amount ${actualBuyAmount} SOL is below minimum (${MIN_BUY_AMOUNT_SOL} SOL). Increase your buy amount.`
+    };
+  }
+
   const connection = getConnection();
   const balance = await connection.getBalance(keypair.publicKey);
   const buyAmountLamports = actualBuyAmount * LAMPORTS_PER_SOL;
@@ -141,120 +150,155 @@ export async function snipeToken(
     
     // Sign the transaction
     tx.sign([keypair]);
-    
-    // Try to send via Jito bundle first for MEV protection
+
+    // Simulate the transaction first to catch errors before sending
+    try {
+      const simResult = await connection.simulateTransaction(tx, {
+        sigVerify: false,
+        commitment: "processed",
+      });
+      if (simResult.value.err) {
+        const errStr = JSON.stringify(simResult.value.err);
+        const logs = simResult.value.logs?.join('\n') || 'no logs';
+        logger.error(`[TX] Simulation FAILED: ${errStr}`);
+        logger.error(`[TX] Simulation logs:\n${logs}`);
+
+        if (errStr.includes('"Custom":6000') || logs.includes('BondingCurveComplete')) {
+          return { success: false, error: "Bonding curve complete - token graduated to Raydium" };
+        } else if (errStr.includes('"Custom":1') || logs.includes('SlippageExceeded')) {
+          return { success: false, error: "Slippage exceeded in simulation - try increasing slippage" };
+        } else if (errStr.includes('InsufficientFunds') || errStr.includes('"Custom":100')) {
+          return { success: false, error: "Insufficient funds detected in simulation" };
+        }
+        return { success: false, error: `Transaction simulation failed: ${errStr}` };
+      }
+      logger.info(`[TX] Simulation OK - units consumed: ${simResult.value.unitsConsumed}`);
+    } catch (simError: any) {
+      logger.warn(`[TX] Simulation request failed (proceeding anyway): ${simError.message}`);
+    }
+
     let txSignature: string | undefined;
     let usedJito = false;
-    
+
+    // Try to send via Jito bundle for MEV protection
     if (jitoTip > 0) {
-      // Create a tip transaction and bundle it
-      const tipTransaction = new Transaction();
-      tipTransaction.add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: 10000 })
-      );
-      tipTransaction.add(
-        SystemProgram.transfer({
-          fromPubkey: keypair.publicKey,
-          toPubkey: getTipAccount(),
-          lamports: jitoTipLamports,
-        })
-      );
-      
-      const { blockhash } = await connection.getLatestBlockhash();
-      tipTransaction.recentBlockhash = blockhash;
-      tipTransaction.feePayer = keypair.publicKey;
-      tipTransaction.sign(keypair);
-      
-      // Send both transactions as a bundle
-      // Note: For now, send main tx directly since PumpPortal tx is already signed
-      // Jito bundles work better with legacy transactions
-    }
-    
-    // Send the versioned transaction directly
-    try {
-      const serializedTx = tx.serialize();
-      logger.info(`[TX] Sending ${serializedTx.length} bytes to RPC...`);
-      
-      txSignature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: true,
-        maxRetries: 3,
-      });
-      
-      logger.info(`[TX] Sent successfully! Signature: ${txSignature}`);
-      
-      // Try to confirm with timeout, but don't fail if it times out
-      let confirmed = false;
-      let confirmError: string | null = null;
-      
       try {
-        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-        const confirmation = await Promise.race([
-          connection.confirmTransaction({
-            signature: txSignature,
-            blockhash,
-            lastValidBlockHeight,
-          }, "confirmed"),
-          new Promise<null>((_, reject) => 
-            setTimeout(() => reject(new Error("Confirmation timeout")), 60000)
-          )
-        ]);
-        
-        if (confirmation && typeof confirmation === 'object' && 'value' in confirmation) {
-          if (confirmation.value.err) {
-            const errorStr = JSON.stringify(confirmation.value.err);
-            
-            if (errorStr.includes('"Custom":101')) {
-              confirmError = "Slippage exceeded - try increasing slippage";
-            } else if (errorStr.includes('"Custom":100')) {
-              confirmError = "Insufficient funds in wallet";
-            } else if (errorStr.includes('"Custom":102')) {
-              confirmError = "Token not available for trading";
-            } else if (errorStr.includes('"Custom":6000')) {
-              confirmError = "Bonding curve complete - token graduated";
-            } else if (errorStr.includes('InsufficientFunds')) {
-              confirmError = "Insufficient SOL balance";
-            } else {
-              confirmError = errorStr;
-            }
+        const tipTransaction = new Transaction();
+        tipTransaction.add(
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 10000 })
+        );
+        tipTransaction.add(
+          SystemProgram.transfer({
+            fromPubkey: keypair.publicKey,
+            toPubkey: getTipAccount(),
+            lamports: jitoTipLamports,
+          })
+        );
+
+        const { blockhash } = await connection.getLatestBlockhash();
+        tipTransaction.recentBlockhash = blockhash;
+        tipTransaction.feePayer = keypair.publicKey;
+        tipTransaction.sign(keypair);
+
+        const bundleResult = await sendBundle([tx, tipTransaction], [keypair]);
+        if (bundleResult.success) {
+          usedJito = true;
+          // Extract signature from the signed versioned transaction
+          txSignature = Buffer.from(tx.signatures[0]).toString('base64');
+          logger.info(`[TX] Sent via Jito bundle: ${bundleResult.bundleId}, tx: ${txSignature}`);
+        } else {
+          logger.warn(`[TX] Jito bundle failed (${bundleResult.error}), falling back to RPC send`);
+        }
+      } catch (jitoError: any) {
+        logger.warn(`[TX] Jito bundle error (${jitoError.message}), falling back to RPC send`);
+      }
+    }
+
+    // Fallback: send directly via RPC if Jito wasn't used or failed
+    if (!usedJito) {
+      try {
+        const serializedTx = tx.serialize();
+        logger.info(`[TX] Sending ${serializedTx.length} bytes to RPC...`);
+
+        txSignature = await connection.sendRawTransaction(serializedTx, {
+          skipPreflight: true,
+          maxRetries: 3,
+        });
+
+        logger.info(`[TX] Sent via RPC! Signature: ${txSignature}`);
+      } catch (sendError: any) {
+        logger.error(`[TX] Send failed: ${sendError.message}`);
+        return { success: false, error: `Send failed: ${sendError.message}` };
+      }
+    }
+
+    // Confirm the transaction
+    let confirmed = false;
+    let confirmError: string | null = null;
+
+    try {
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      const confirmation = await Promise.race([
+        connection.confirmTransaction({
+          signature: txSignature!,
+          blockhash,
+          lastValidBlockHeight,
+        }, "confirmed"),
+        new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error("Confirmation timeout")), 60000)
+        )
+      ]);
+
+      if (confirmation && typeof confirmation === 'object' && 'value' in confirmation) {
+        if (confirmation.value.err) {
+          const errorStr = JSON.stringify(confirmation.value.err);
+          logger.error(`[TX] On-chain error for ${txSignature}: ${errorStr}`);
+
+          if (errorStr.includes('"Custom":101')) {
+            confirmError = "Slippage exceeded - try increasing slippage";
+          } else if (errorStr.includes('"Custom":100')) {
+            confirmError = "Insufficient funds in wallet";
+          } else if (errorStr.includes('"Custom":102')) {
+            confirmError = "Token not available for trading";
+          } else if (errorStr.includes('"Custom":6000')) {
+            confirmError = "Bonding curve complete - token graduated";
+          } else if (errorStr.includes('InsufficientFunds')) {
+            confirmError = "Insufficient SOL balance";
           } else {
-            confirmed = true;
+            confirmError = `On-chain error: ${errorStr}`;
           }
+        } else {
+          confirmed = true;
         }
-      } catch (confirmErr: any) {
-        // Timeout or other confirmation error - transaction may still have succeeded
-        logger.warn(`[TX] Confirmation uncertain for ${txSignature}: ${confirmErr.message}`);
       }
-      
-      if (confirmError) {
-        logger.error(`[TX] Transaction failed with error: ${confirmError}`);
-        return { success: false, error: confirmError };
-      }
-      
-      // If not confirmed but no error, check if transaction exists on-chain
-      if (!confirmed) {
-        logger.info(`[TX] Not confirmed yet, checking status...`);
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        try {
-          const status = await connection.getSignatureStatus(txSignature);
-          logger.info(`[TX] Signature status: ${JSON.stringify(status.value)}`);
-          if (status.value?.err) {
-            logger.error(`[TX] Transaction error on-chain: ${JSON.stringify(status.value.err)}`);
-            return { success: false, error: "Transaction failed on-chain" };
-          }
-          // Transaction exists and no error - likely succeeded
-          confirmed = status.value !== null;
-          logger.info(`[TX] Confirmed via status check: ${confirmed}`);
-        } catch (e: any) {
-          logger.warn(`[TX] Status check failed: ${e.message}`);
-          // Continue anyway - we'll check token balance
+    } catch (confirmErr: any) {
+      logger.warn(`[TX] Confirmation uncertain for ${txSignature}: ${confirmErr.message}`);
+    }
+
+    if (confirmError) {
+      logger.error(`[TX] FAILED tx=${txSignature} error="${confirmError}"`);
+      return { success: false, error: `${confirmError} (tx: ${txSignature})`, txSignature };
+    }
+
+    // If not confirmed but no error, check if transaction exists on-chain
+    if (!confirmed) {
+      logger.info(`[TX] Not confirmed yet, checking status for ${txSignature}...`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      try {
+        const status = await connection.getSignatureStatus(txSignature!);
+        logger.info(`[TX] Signature status: ${JSON.stringify(status.value)}`);
+        if (status.value?.err) {
+          const errStr = JSON.stringify(status.value.err);
+          logger.error(`[TX] On-chain error: ${errStr} tx=${txSignature}`);
+          return { success: false, error: `Transaction failed on-chain: ${errStr} (tx: ${txSignature})`, txSignature };
         }
-      } else {
-        logger.info(`[TX] Confirmed!`);
+        confirmed = status.value !== null;
+        logger.info(`[TX] Confirmed via status check: ${confirmed}`);
+      } catch (e: any) {
+        logger.warn(`[TX] Status check failed: ${e.message}`);
       }
-      
-    } catch (sendError: any) {
-      logger.error(`Transaction send failed: ${sendError.message}`);
-      return { success: false, error: `Send failed: ${sendError.message}` };
+    } else {
+      logger.info(`[TX] Confirmed! tx=${txSignature}`);
     }
     
     // Wait for token account to update and verify tokens were received
@@ -272,11 +316,11 @@ export async function snipeToken(
     // CRITICAL: Only create position if we actually received tokens
     // This prevents fake positions when transactions fail/drop
     if (tokensBought === 0) {
-      logger.error(`Transaction sent but no tokens received - tx may have failed: ${txSignature}`);
-      return { 
-        success: false, 
-        error: `Transaction sent but no tokens received. Check tx: ${txSignature?.slice(0, 20)}...`,
-        txSignature 
+      logger.error(`[TX] No tokens received after tx=${txSignature} - check on Solscan: https://solscan.io/tx/${txSignature}`);
+      return {
+        success: false,
+        error: `Transaction sent but no tokens received. Check: https://solscan.io/tx/${txSignature}`,
+        txSignature
       };
     }
     
