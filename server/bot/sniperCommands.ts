@@ -18,7 +18,7 @@ import type { SniperSettings, Position } from "@shared/schema";
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
 
 // Conversation state for custom input
-type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp";
+type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp" | "b_jito" | "b_sl" | "b_tp_pct" | "b_tp_mult" | "b_moon" | "b_moon_mult" | "b_buy" | "b_slip" | "b_straight_tp";
 interface PendingInput {
   type: InputType;
   tpIndex?: number; // For editing specific TP bracket
@@ -179,6 +179,95 @@ export async function handleCustomInput(ctx: Context, text: string): Promise<boo
       });
       await ctx.reply(`Straight TP set: 100% @ ${value}x`);
       break;
+    // Bundle sniper custom inputs
+    case "b_jito":
+      if (value < 0 || value > 1) {
+        await ctx.reply("Jito tip must be between 0 and 1 SOL.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_jito_tip_sol: value });
+      await ctx.reply(`Bundle Jito tip set to ${value} SOL`);
+      break;
+    case "b_sl":
+      if (value < 0 || value > 100) {
+        await ctx.reply("Stop loss must be between 0 and 100%.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_stop_loss_percent: value });
+      await ctx.reply(value === 0 ? "Bundle stop loss disabled" : `Bundle stop loss set to -${value}%`);
+      break;
+    case "b_moon":
+      if (value < 0 || value > 100) {
+        await ctx.reply("Moon bag must be between 0 and 100%.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_moon_bag_percent: value });
+      await ctx.reply(`Bundle moon bag set to ${value}%`);
+      break;
+    case "b_buy":
+      if (value <= 0 || value > 100) {
+        await ctx.reply("Buy amount must be between 0.001 and 100 SOL.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_buy_amount_sol: value });
+      await ctx.reply(`Bundle buy amount set to ${value} SOL`);
+      break;
+    case "b_slip":
+      if (value < 1 || value > 100) {
+        await ctx.reply("Slippage must be between 1 and 100%.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_slippage_percent: value });
+      await ctx.reply(`Bundle slippage set to ${value}%`);
+      break;
+    case "b_tp_pct":
+      if (value < 1 || value > 100) {
+        await ctx.reply("TP percentage must be between 1 and 100%.");
+        return true;
+      }
+      if (pending.tpIndex !== undefined) {
+        const brackets = [...(settings.bundle_tp_brackets || [])];
+        if (brackets[pending.tpIndex]) {
+          brackets[pending.tpIndex].percentage = value;
+          db.updateSniperSettings(userId, { bundle_tp_brackets: brackets });
+          await ctx.reply(`Bundle TP${pending.tpIndex + 1} percentage set to ${value}%`);
+        }
+      }
+      break;
+    case "b_moon_mult":
+      if (value < 1.1 || value > 1000) {
+        await ctx.reply("Moon bag multiplier must be between 1.1x and 1000x.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_moon_bag_multiplier: value });
+      await ctx.reply(`Bundle moon bag TP set to ${value}x`);
+      break;
+    case "b_straight_tp":
+      if (value < 1.1 || value > 1000) {
+        await ctx.reply("TP multiplier must be between 1.1x and 1000x.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { 
+        bundle_tp_brackets: [{ percentage: 100, multiplier: value }],
+        bundle_moon_bag_percent: 0,
+        bundle_moon_bag_multiplier: 0
+      });
+      await ctx.reply(`Bundle Straight TP set: 100% @ ${value}x`);
+      break;
+    case "b_tp_mult":
+      if (value < 1.1 || value > 1000) {
+        await ctx.reply("TP multiplier must be between 1.1x and 1000x.");
+        return true;
+      }
+      if (pending.tpIndex !== undefined) {
+        const brackets = [...(settings.bundle_tp_brackets || [])];
+        if (brackets[pending.tpIndex]) {
+          brackets[pending.tpIndex].multiplier = value;
+          db.updateSniperSettings(userId, { bundle_tp_brackets: brackets });
+          await ctx.reply(`Bundle TP${pending.tpIndex + 1} multiplier set to ${value}x`);
+        }
+      }
+      break;
   }
   
   return true;
@@ -265,7 +354,9 @@ ${walletStatus}
 
 function getSniperMainKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("⚙️ Settings", "sniper:settings")
+    .text("⚙️ Creator Sniper", "sniper:settings")
+    .text("🎯 Bundle Sniper", "sniper:bundle_settings")
+    .row()
     .text("💼 Wallet", "sniper:wallet")
     .row()
     .text("📊 Positions", "sniper:positions")
@@ -289,6 +380,9 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
     switch (action) {
       case "settings":
         await showSettingsMenu(ctx, userId);
+        break;
+      case "bundle_settings":
+        await showBundleSniperMenu(ctx, userId);
         break;
       case "wallet":
         await showWalletMenu(ctx, userId);
@@ -386,6 +480,132 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
         await ctx.answerCallbackQuery();
         await ctx.reply("Enter moon bag TP multiplier (e.g., 50 for sell at 50x, 0 for hold forever):");
         break;
+      // Bundle sniper handlers
+      case "b_edit_buy":
+        await promptBundleEditBuy(ctx, userId);
+        break;
+      case "b_edit_slip":
+        await promptBundleEditSlippage(ctx, userId);
+        break;
+      case "b_edit_jito":
+        await promptBundleEditJito(ctx, userId);
+        break;
+      case "b_edit_sl":
+        await promptBundleEditStopLoss(ctx, userId);
+        break;
+      case "b_edit_tp":
+        await showBundleTPMenu(ctx, userId);
+        break;
+      case "b_toggle_autobuy":
+        await toggleBundleAutoBuy(ctx, userId);
+        break;
+      case "b_edit_tp_bracket":
+        await showBundleTPBracketEdit(ctx, userId, parseInt(value));
+        break;
+      case "b_set_tp_pct":
+        await setBundleTPBracketPct(ctx, userId, value);
+        break;
+      case "b_set_tp_mult":
+        await setBundleTPBracketMult(ctx, userId, value);
+        break;
+      case "b_custom_tp_pct":
+        pendingInputs.set(userId, { type: "b_tp_pct", tpIndex: parseInt(value) });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter your custom TP percentage (1-100):");
+        break;
+      case "b_custom_tp_mult":
+        pendingInputs.set(userId, { type: "b_tp_mult", tpIndex: parseInt(value) });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter your custom TP multiplier (e.g., 15 for 15x):");
+        break;
+      case "b_straight_tp_menu":
+        await showBundleStraightTPMenu(ctx, userId);
+        break;
+      case "b_set_straight_tp":
+        await setBundleStraightTP(ctx, userId, parseFloat(value));
+        break;
+      case "b_custom_straight_tp":
+        pendingInputs.set(userId, { type: "b_straight_tp" });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter your straight TP multiplier (e.g., 2 for 100% sell at 2x):");
+        break;
+      case "b_moon_bag_menu":
+        await showBundleMoonBagMenu(ctx, userId);
+        break;
+      case "b_moon_mult_menu":
+        await showBundleMoonMultMenu(ctx, userId);
+        break;
+      case "b_set_moon":
+        await setBundleMoonBag(ctx, userId, parseFloat(value));
+        break;
+      case "b_set_moon_mult":
+        await setBundleMoonMult(ctx, userId, parseFloat(value));
+        break;
+      case "b_custom_moon":
+        pendingInputs.set(userId, { type: "b_moon" });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter moon bag percentage (0-100, 0 to disable):");
+        break;
+      case "b_custom_moon_mult":
+        pendingInputs.set(userId, { type: "b_moon_mult" });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter moon bag TP multiplier (e.g., 50 for sell at 50x, 0 for hold forever):");
+        break;
+      case "b_set_buy":
+        db.updateSniperSettings(userId, { bundle_buy_amount_sol: parseFloat(value) });
+        await ctx.answerCallbackQuery({ text: `Bundle buy: ${value} SOL` });
+        await showBundleSniperMenu(ctx, userId);
+        break;
+      case "b_set_slip":
+        db.updateSniperSettings(userId, { bundle_slippage_percent: parseFloat(value) });
+        await ctx.answerCallbackQuery({ text: `Bundle slippage: ${value}%` });
+        await showBundleSniperMenu(ctx, userId);
+        break;
+      case "b_set_jito":
+        db.updateSniperSettings(userId, { bundle_jito_tip_sol: parseFloat(value) });
+        await ctx.answerCallbackQuery({ text: `Bundle Jito: ${value} SOL` });
+        await showBundleSniperMenu(ctx, userId);
+        break;
+      case "b_set_sl":
+        db.updateSniperSettings(userId, { bundle_stop_loss_percent: parseFloat(value) });
+        await ctx.answerCallbackQuery({ text: value === "0" ? "Bundle SL disabled" : `Bundle SL: -${value}%` });
+        await showBundleSniperMenu(ctx, userId);
+        break;
+      case "b_set_tp_preset":
+        const bundlePresets: Record<string, any> = {
+          conservative: [
+            { percentage: 50, multiplier: 1.5 },
+            { percentage: 30, multiplier: 2 },
+            { percentage: 20, multiplier: 3 },
+          ],
+          balanced: [
+            { percentage: 50, multiplier: 2 },
+            { percentage: 30, multiplier: 5 },
+            { percentage: 20, multiplier: 10 },
+          ],
+          aggressive: [
+            { percentage: 30, multiplier: 3 },
+            { percentage: 30, multiplier: 10 },
+            { percentage: 40, multiplier: 50 },
+          ],
+        };
+        if (bundlePresets[value]) {
+          db.updateSniperSettings(userId, { bundle_tp_brackets: bundlePresets[value] });
+          await ctx.answerCallbackQuery({ text: `Bundle TP: ${value}` });
+        }
+        await showBundleTPMenu(ctx, userId);
+        break;
+      case "b_custom":
+        pendingInputs.set(userId, { type: value as InputType });
+        await ctx.answerCallbackQuery();
+        const prompts: Record<string, string> = {
+          b_buy: "Enter bundle buy amount in SOL:",
+          b_slip: "Enter bundle slippage percentage:",
+          b_jito: "Enter bundle Jito tip in SOL:",
+          b_sl: "Enter bundle stop loss percentage (0 to disable):",
+        };
+        await ctx.reply(prompts[value] || "Enter value:");
+        break;
       default:
         if (action.startsWith("set_")) {
           await handleSettingUpdate(ctx, userId, action, value);
@@ -443,6 +663,51 @@ async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
 📊 *Max Positions:* ${formatMarkdownValue(maxPos)} \\(${formatMarkdownValue(openCount)} open\\)
 
 🎯 *Auto\\-Buy:* ${settings.auto_buy_enabled ? "Enabled" : "Disabled"}`,
+    {
+      parse_mode: "MarkdownV2",
+      reply_markup: keyboard,
+    }
+  );
+}
+
+async function showBundleSniperMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  
+  const keyboard = new InlineKeyboard()
+    .text(`Buy: ${settings.bundle_buy_amount_sol ?? 0.1} SOL`, "sniper:b_edit_buy")
+    .text(`Slip: ${settings.bundle_slippage_percent ?? 20}%`, "sniper:b_edit_slip")
+    .row()
+    .text(`Jito: ${settings.bundle_jito_tip_sol ?? 0.005} SOL`, "sniper:b_edit_jito")
+    .text(`SL: -${settings.bundle_stop_loss_percent ?? 50}%`, "sniper:b_edit_sl")
+    .row()
+    .text("📈 Edit Take Profit", "sniper:b_edit_tp")
+    .row()
+    .text(settings.bundle_auto_buy_enabled ? "🟢 Auto-Buy ON" : "🔴 Auto-Buy OFF", "sniper:b_toggle_autobuy")
+    .row()
+    .text("← Back", "sniper:back");
+  
+  const brackets = settings.bundle_tp_brackets || [];
+  let tpText = "";
+  brackets.forEach((b, i) => {
+    tpText += `\nTP${i + 1}: ${formatMarkdownValue(b.percentage)}% @ ${formatMarkdownValue(b.multiplier)}x`;
+  });
+  if ((settings.bundle_moon_bag_percent ?? 0) > 0) {
+    tpText += `\nMoon Bag: ${formatMarkdownValue(settings.bundle_moon_bag_percent)}%`;
+  }
+  
+  await ctx.editMessageText(
+    `🎯 *BUNDLE SNIPER SETTINGS*
+
+_For auto\\-sniping dev bundles_
+
+*Buy Amount:* ${formatMarkdownValue(settings.bundle_buy_amount_sol ?? 0.1)} SOL
+*Slippage:* ${formatMarkdownValue(settings.bundle_slippage_percent ?? 20)}%
+*Jito Tip:* ${formatMarkdownValue(settings.bundle_jito_tip_sol ?? 0.005)} SOL
+*Stop Loss:* \\-${formatMarkdownValue(settings.bundle_stop_loss_percent ?? 50)}%
+
+📈 *Take Profit:*${tpText || "\n_Not configured_"}
+
+🎯 *Auto\\-Buy:* ${settings.bundle_auto_buy_enabled ? "Enabled" : "Disabled"}`,
     {
       parse_mode: "MarkdownV2",
       reply_markup: keyboard,
@@ -1219,4 +1484,310 @@ Invalid private key format\\. Use:
     );
     return false;
   }
+}
+
+// Bundle Sniper Helper Functions
+async function promptBundleEditBuy(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const keyboard = new InlineKeyboard()
+    .text("0.05", "sniper:b_set_buy:0.05")
+    .text("0.1", "sniper:b_set_buy:0.1")
+    .text("0.25", "sniper:b_set_buy:0.25")
+    .row()
+    .text("0.5", "sniper:b_set_buy:0.5")
+    .text("1", "sniper:b_set_buy:1")
+    .text("Custom", "sniper:b_custom:b_buy")
+    .row()
+    .text("← Back", "sniper:bundle_settings");
+  
+  await ctx.editMessageText(
+    `💰 *BUNDLE BUY AMOUNT*
+
+Current: ${settings.bundle_buy_amount_sol ?? 0.1} SOL
+
+Select amount:`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function promptBundleEditSlippage(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const keyboard = new InlineKeyboard()
+    .text("10%", "sniper:b_set_slip:10")
+    .text("20%", "sniper:b_set_slip:20")
+    .text("30%", "sniper:b_set_slip:30")
+    .row()
+    .text("50%", "sniper:b_set_slip:50")
+    .text("Custom", "sniper:b_custom:b_slip")
+    .row()
+    .text("← Back", "sniper:bundle_settings");
+  
+  await ctx.editMessageText(
+    `📊 *BUNDLE SLIPPAGE*
+
+Current: ${settings.bundle_slippage_percent ?? 20}%
+
+Select slippage:`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function promptBundleEditJito(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const keyboard = new InlineKeyboard()
+    .text("0.001", "sniper:b_set_jito:0.001")
+    .text("0.005", "sniper:b_set_jito:0.005")
+    .text("0.01", "sniper:b_set_jito:0.01")
+    .row()
+    .text("0.02", "sniper:b_set_jito:0.02")
+    .text("Custom", "sniper:b_custom:b_jito")
+    .row()
+    .text("← Back", "sniper:bundle_settings");
+  
+  await ctx.editMessageText(
+    `⚡ *BUNDLE JITO TIP*
+
+Current: ${settings.bundle_jito_tip_sol ?? 0.005} SOL
+
+Higher tip = faster execution`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function promptBundleEditStopLoss(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const keyboard = new InlineKeyboard()
+    .text("Disable", "sniper:b_set_sl:0")
+    .text("-30%", "sniper:b_set_sl:30")
+    .row()
+    .text("-50%", "sniper:b_set_sl:50")
+    .text("-80%", "sniper:b_set_sl:80")
+    .row()
+    .text("Custom", "sniper:b_custom:b_sl")
+    .row()
+    .text("← Back", "sniper:bundle_settings");
+  
+  await ctx.editMessageText(
+    `📉 *BUNDLE STOP LOSS*
+
+Current: \\-${settings.bundle_stop_loss_percent ?? 50}%
+
+Sells 100% when price drops by this %`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function showBundleTPMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = settings.bundle_tp_brackets || [];
+  
+  const keyboard = new InlineKeyboard()
+    .text("Conservative", "sniper:b_set_tp_preset:conservative")
+    .text("Balanced", "sniper:b_set_tp_preset:balanced")
+    .row()
+    .text("Aggressive", "sniper:b_set_tp_preset:aggressive")
+    .text("💯 Straight TP", "sniper:b_straight_tp_menu")
+    .row();
+  
+  brackets.forEach((_, i) => {
+    keyboard.text(`Edit TP${i + 1}`, `sniper:b_edit_tp_bracket:${i}`);
+  });
+  
+  keyboard.row()
+    .text("🌙 Moon Bag", "sniper:b_moon_bag_menu")
+    .row()
+    .text("← Back", "sniper:bundle_settings");
+  
+  let tpText = brackets.length > 0 
+    ? brackets.map((b, i) => `TP${i + 1}: ${b.percentage}% @ ${b.multiplier}x`).join("\n")
+    : "Not configured";
+  
+  if ((settings.bundle_moon_bag_percent ?? 0) > 0) {
+    const moonMult = settings.bundle_moon_bag_multiplier ?? 0;
+    tpText += `\nMoon Bag: ${settings.bundle_moon_bag_percent}% ` + 
+      (moonMult > 0 ? `(sell @ ${moonMult}x)` : "(hold forever)");
+  }
+  
+  await ctx.editMessageText(
+    `📈 *BUNDLE TAKE PROFIT*
+
+${tpText.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')}
+
+Choose a preset or edit brackets:`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function toggleBundleAutoBuy(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const newValue = !settings.bundle_auto_buy_enabled;
+  db.updateSniperSettings(userId, { bundle_auto_buy_enabled: newValue });
+  await showBundleSniperMenu(ctx, userId);
+}
+
+async function showBundleTPBracketEdit(ctx: Context, userId: string, index: number): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = settings.bundle_tp_brackets || [];
+  const bracket = brackets[index];
+  
+  if (!bracket) {
+    await ctx.answerCallbackQuery({ text: "Invalid bracket" });
+    return;
+  }
+  
+  const keyboard = new InlineKeyboard()
+    .text("Pct: 25%", `sniper:b_set_tp_pct:${index}:25`)
+    .text("50%", `sniper:b_set_tp_pct:${index}:50`)
+    .text("75%", `sniper:b_set_tp_pct:${index}:75`)
+    .text("100%", `sniper:b_set_tp_pct:${index}:100`)
+    .row()
+    .text("Mult: 2x", `sniper:b_set_tp_mult:${index}:2`)
+    .text("5x", `sniper:b_set_tp_mult:${index}:5`)
+    .text("10x", `sniper:b_set_tp_mult:${index}:10`)
+    .text("20x", `sniper:b_set_tp_mult:${index}:20`)
+    .row()
+    .text("Custom %", `sniper:b_custom_tp_pct:${index}`)
+    .text("Custom x", `sniper:b_custom_tp_mult:${index}`)
+    .row()
+    .text("<- Back", "sniper:b_edit_tp");
+  
+  await ctx.editMessageText(
+    `📈 *EDIT BUNDLE TP${index + 1}*
+
+Current: ${bracket.percentage}% @ ${bracket.multiplier}x
+
+Set percentage or multiplier:`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function setBundleTPBracketPct(ctx: Context, userId: string, value: string): Promise<void> {
+  const [indexStr, pctStr] = value.split(":");
+  const index = parseInt(indexStr);
+  const pct = parseFloat(pctStr);
+  
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = [...(settings.bundle_tp_brackets || [])];
+  
+  if (brackets[index]) {
+    brackets[index].percentage = pct;
+    db.updateSniperSettings(userId, { bundle_tp_brackets: brackets });
+  }
+  
+  await showBundleTPBracketEdit(ctx, userId, index);
+}
+
+async function setBundleTPBracketMult(ctx: Context, userId: string, value: string): Promise<void> {
+  const [indexStr, multStr] = value.split(":");
+  const index = parseInt(indexStr);
+  const mult = parseFloat(multStr);
+  
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = [...(settings.bundle_tp_brackets || [])];
+  
+  if (brackets[index]) {
+    brackets[index].multiplier = mult;
+    db.updateSniperSettings(userId, { bundle_tp_brackets: brackets });
+  }
+  
+  await showBundleTPBracketEdit(ctx, userId, index);
+}
+
+async function showBundleStraightTPMenu(ctx: Context, userId: string): Promise<void> {
+  const keyboard = new InlineKeyboard()
+    .text("1.5x", "sniper:b_set_straight_tp:1.5")
+    .text("2x", "sniper:b_set_straight_tp:2")
+    .text("3x", "sniper:b_set_straight_tp:3")
+    .row()
+    .text("5x", "sniper:b_set_straight_tp:5")
+    .text("10x", "sniper:b_set_straight_tp:10")
+    .text("Custom", "sniper:b_custom_straight_tp")
+    .row()
+    .text("← Back", "sniper:b_edit_tp");
+  
+  await ctx.editMessageText(
+    `💯 *BUNDLE STRAIGHT TP*
+
+Sell 100% at target multiplier\\.
+No brackets, no moon bag\\.
+
+Select target:`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function setBundleStraightTP(ctx: Context, userId: string, multiplier: number): Promise<void> {
+  db.updateSniperSettings(userId, {
+    bundle_tp_brackets: [{ percentage: 100, multiplier }],
+    bundle_moon_bag_percent: 0
+  });
+  await ctx.answerCallbackQuery({ text: `Straight TP: 100% @ ${multiplier}x` });
+  await showBundleTPMenu(ctx, userId);
+}
+
+async function showBundleMoonBagMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  
+  const keyboard = new InlineKeyboard()
+    .text("Disable", "sniper:b_set_moon:0")
+    .text("10%", "sniper:b_set_moon:10")
+    .text("20%", "sniper:b_set_moon:20")
+    .row()
+    .text("30%", "sniper:b_set_moon:30")
+    .text("50%", "sniper:b_set_moon:50")
+    .text("Custom", "sniper:b_custom_moon")
+    .row()
+    .text("🎯 Moon TP", "sniper:b_moon_mult_menu")
+    .row()
+    .text("← Back", "sniper:b_edit_tp");
+  
+  const moonMult = settings.bundle_moon_bag_multiplier ?? 0;
+  const moonText = moonMult > 0 ? `sells @ ${moonMult}x` : "hold forever";
+  
+  await ctx.editMessageText(
+    `🌙 *BUNDLE MOON BAG*
+
+Current: ${settings.bundle_moon_bag_percent ?? 0}% \\(${moonText}\\)
+
+Keep a % of position for long\\-term gains:`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function showBundleMoonMultMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  
+  const keyboard = new InlineKeyboard()
+    .text("Hold Forever", "sniper:b_set_moon_mult:0")
+    .row()
+    .text("20x", "sniper:b_set_moon_mult:20")
+    .text("50x", "sniper:b_set_moon_mult:50")
+    .text("100x", "sniper:b_set_moon_mult:100")
+    .row()
+    .text("Custom", "sniper:b_custom_moon_mult")
+    .row()
+    .text("← Back", "sniper:b_moon_bag_menu");
+  
+  const moonMult = settings.bundle_moon_bag_multiplier ?? 0;
+  
+  await ctx.editMessageText(
+    `🎯 *BUNDLE MOON BAG TP*
+
+Current: ${moonMult === 0 ? "Hold Forever" : `Sell @ ${moonMult}x`}
+
+When to sell the moon bag:`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function setBundleMoonBag(ctx: Context, userId: string, value: number): Promise<void> {
+  db.updateSniperSettings(userId, { bundle_moon_bag_percent: value });
+  await ctx.answerCallbackQuery({ text: value === 0 ? "Moon bag disabled" : `Moon bag: ${value}%` });
+  await showBundleMoonBagMenu(ctx, userId);
+}
+
+async function setBundleMoonMult(ctx: Context, userId: string, value: number): Promise<void> {
+  db.updateSniperSettings(userId, { bundle_moon_bag_multiplier: value });
+  await ctx.answerCallbackQuery({ text: value === 0 ? "Moon: Hold forever" : `Moon sells @ ${value}x` });
+  await showBundleMoonMultMenu(ctx, userId);
 }

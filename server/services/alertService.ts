@@ -271,13 +271,13 @@ export async function sendBundleAlert(
     
     logger.alert(`Bundle alert sent to ${user.telegram_id} for ${symbol} (${devBuySOL.toFixed(2)} SOL)`);
     
-    // Auto-snipe if enabled - uses main sniper settings
+    // Auto-snipe if enabled - uses bundle sniper settings
     if (autoSnipe) {
       const wallet = db.getWallet(user.telegram_id);
       if (wallet) {
-        // Use main sniper settings for bundle auto-snipe
+        // Use bundle-specific sniper settings
         const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
-        const buyAmountSOL = sniperSettings.buy_amount_sol ?? 0.1;
+        const buyAmountSOL = sniperSettings.bundle_buy_amount_sol ?? 0.1;
         
         // Check max open positions limit (999 = unlimited, skip check)
         const maxPositions = sniperSettings.max_open_positions ?? 5;
@@ -294,7 +294,8 @@ export async function sendBundleAlert(
           }
         }
         
-        snipeToken(user.telegram_id, tokenAddress, tokenSymbol, tokenName, buyAmountSOL).then((result) => {
+        // Pass "bundle" mode to use bundle-specific settings
+        snipeToken(user.telegram_id, tokenAddress, tokenSymbol, tokenName, buyAmountSOL, "bundle").then((result) => {
           if (result.success) {
             botInstance?.api.sendMessage(user.telegram_id,
               `✅ *BUNDLE AUTO\\-SNIPE SUCCESS*\n\n` +

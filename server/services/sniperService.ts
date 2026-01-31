@@ -35,7 +35,8 @@ export async function snipeToken(
   tokenAddress: string,
   tokenSymbol: string | null,
   tokenName: string | null,
-  buyAmountOverride?: number
+  buyAmountOverride?: number,
+  mode: "creator" | "bundle" = "creator"
 ): Promise<SnipeResult> {
   const keypair = getUserKeypair(userId);
   if (!keypair) {
@@ -43,12 +44,16 @@ export async function snipeToken(
   }
   
   const settings = db.getOrCreateSniperSettings(userId);
-  const actualBuyAmount = buyAmountOverride ?? settings.buy_amount_sol;
+  
+  // Use bundle-specific settings if mode is "bundle"
+  const actualBuyAmount = buyAmountOverride ?? (mode === "bundle" ? settings.bundle_buy_amount_sol : settings.buy_amount_sol) ?? 0.1;
+  const jitoTip = mode === "bundle" ? (settings.bundle_jito_tip_sol ?? 0.005) : settings.jito_tip_sol;
+  const slippage = mode === "bundle" ? (settings.bundle_slippage_percent ?? 20) : settings.slippage_percent;
   
   const connection = getConnection();
   const balance = await connection.getBalance(keypair.publicKey);
   const buyAmountLamports = actualBuyAmount * LAMPORTS_PER_SOL;
-  const jitoTipLamports = settings.jito_tip_sol * LAMPORTS_PER_SOL;
+  const jitoTipLamports = jitoTip * LAMPORTS_PER_SOL;
   const totalNeeded = buyAmountLamports + jitoTipLamports + 10000;
   
   if (balance < totalNeeded) {
@@ -117,7 +122,7 @@ export async function snipeToken(
       }
       
       const tokensBought = await getTokenBalance(connection, keypair.publicKey, tokenMint);
-      const entryPrice = tokensBought > 0 ? settings.buy_amount_sol / tokensBought : 0;
+      const entryPrice = tokensBought > 0 ? actualBuyAmount / tokensBought : 0;
       
       const position = db.createPosition({
         user_id: userId,
@@ -125,7 +130,7 @@ export async function snipeToken(
         token_symbol: tokenSymbol,
         token_name: tokenName,
         entry_price_sol: entryPrice,
-        entry_amount_sol: settings.buy_amount_sol,
+        entry_amount_sol: actualBuyAmount,
         tokens_bought: tokensBought,
         tokens_remaining: tokensBought,
         current_price_sol: entryPrice,
@@ -134,6 +139,7 @@ export async function snipeToken(
         tp2_hit: false,
         tp3_hit: false,
         status: "open",
+        snipe_mode: mode,
       });
       
       db.createTradeHistory({
@@ -162,7 +168,7 @@ export async function snipeToken(
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     const tokensBought = await getTokenBalance(connection, keypair.publicKey, new PublicKey(tokenAddress));
-    const entryPrice = tokensBought > 0 ? settings.buy_amount_sol / tokensBought : 0;
+    const entryPrice = tokensBought > 0 ? actualBuyAmount / tokensBought : 0;
     
     const position = db.createPosition({
       user_id: userId,
@@ -170,7 +176,7 @@ export async function snipeToken(
       token_symbol: tokenSymbol,
       token_name: tokenName,
       entry_price_sol: entryPrice,
-      entry_amount_sol: settings.buy_amount_sol,
+      entry_amount_sol: actualBuyAmount,
       tokens_bought: tokensBought,
       tokens_remaining: tokensBought,
       current_price_sol: entryPrice,
@@ -179,6 +185,7 @@ export async function snipeToken(
       tp2_hit: false,
       tp3_hit: false,
       status: "open",
+      snipe_mode: mode,
     });
     
     db.createTradeHistory({
@@ -187,11 +194,11 @@ export async function snipeToken(
       token_address: tokenAddress,
       token_symbol: tokenSymbol,
       trade_type: "buy",
-      amount_sol: settings.buy_amount_sol,
+      amount_sol: actualBuyAmount,
       tokens_amount: tokensBought,
       price_per_token: entryPrice,
       tx_signature: bundleResult.bundleId || null,
-      trigger_reason: "auto_snipe_jito",
+      trigger_reason: mode === "bundle" ? "bundle_snipe_jito" : "auto_snipe_jito",
     });
     
     logger.info(`Jito sniped ${tokenSymbol || tokenAddress.slice(0, 8)} for user ${userId}: ${tokensBought} tokens`);

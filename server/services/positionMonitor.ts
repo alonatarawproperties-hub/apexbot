@@ -91,10 +91,16 @@ async function checkTPSL(position: Position): Promise<void> {
   const settings = db.getSniperSettings(position.user_id);
   if (!settings) return;
   
+  // Use bundle-specific settings if position was created from bundle snipe
+  const isBundle = position.snipe_mode === "bundle";
+  const stopLoss = isBundle ? (settings.bundle_stop_loss_percent ?? 50) : settings.stop_loss_percent;
+  const brackets = isBundle ? (settings.bundle_tp_brackets || []) : (settings.tp_brackets || []);
+  const moonBagPercent = isBundle ? (settings.bundle_moon_bag_percent ?? 0) : (settings.moon_bag_percent || 0);
+  
   const currentMultiplier = position.current_price_sol / position.entry_price_sol;
   
-  if (settings.stop_loss_percent > 0) {
-    const stopLossThreshold = 1 - (settings.stop_loss_percent / 100);
+  if (stopLoss > 0) {
+    const stopLossThreshold = 1 - (stopLoss / 100);
     if (currentMultiplier <= stopLossThreshold) {
       logger.info(`Stop loss triggered for position ${position.id}: ${(currentMultiplier * 100 - 100).toFixed(1)}%`);
       
@@ -103,9 +109,7 @@ async function checkTPSL(position: Position): Promise<void> {
     }
   }
   
-  const brackets = settings.tp_brackets || [];
   const totalTPPercent = brackets.reduce((sum, b) => sum + b.percentage, 0);
-  const moonBagPercent = settings.moon_bag_percent || 0;
   
   if (brackets.length >= 1 && !position.tp1_hit) {
     const tp1 = brackets[0];

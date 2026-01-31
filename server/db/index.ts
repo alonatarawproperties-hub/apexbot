@@ -128,6 +128,14 @@ function runMigrations(): void {
       moon_bag_multiplier REAL DEFAULT 0,
       stop_loss_percent REAL DEFAULT 50,
       max_open_positions INTEGER DEFAULT 5,
+      bundle_auto_buy_enabled INTEGER DEFAULT 0,
+      bundle_buy_amount_sol REAL DEFAULT 0.1,
+      bundle_slippage_percent REAL DEFAULT 20,
+      bundle_jito_tip_sol REAL DEFAULT 0.005,
+      bundle_tp_brackets TEXT DEFAULT '[{"percentage":50,"multiplier":2},{"percentage":30,"multiplier":5},{"percentage":20,"multiplier":10}]',
+      bundle_moon_bag_percent REAL DEFAULT 0,
+      bundle_moon_bag_multiplier REAL DEFAULT 0,
+      bundle_stop_loss_percent REAL DEFAULT 50,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(telegram_id)
@@ -150,6 +158,7 @@ function runMigrations(): void {
       tp2_hit INTEGER DEFAULT 0,
       tp3_hit INTEGER DEFAULT 0,
       status TEXT DEFAULT 'open',
+      snipe_mode TEXT DEFAULT 'creator',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       closed_at TEXT,
       FOREIGN KEY (user_id) REFERENCES users(telegram_id)
@@ -187,6 +196,33 @@ function runMigrations(): void {
   // Safe migration: add max_open_positions column if it doesn't exist
   try {
     db.exec(`ALTER TABLE sniper_settings ADD COLUMN max_open_positions INTEGER DEFAULT 5`);
+  } catch (e: any) {
+    // Column already exists - ignore error
+  }
+  
+  // Safe migrations for bundle sniper settings
+  const bundleColumns = [
+    { name: "bundle_auto_buy_enabled", type: "INTEGER DEFAULT 0" },
+    { name: "bundle_buy_amount_sol", type: "REAL DEFAULT 0.1" },
+    { name: "bundle_slippage_percent", type: "REAL DEFAULT 20" },
+    { name: "bundle_jito_tip_sol", type: "REAL DEFAULT 0.005" },
+    { name: "bundle_tp_brackets", type: "TEXT DEFAULT '[{\"percentage\":50,\"multiplier\":2},{\"percentage\":30,\"multiplier\":5},{\"percentage\":20,\"multiplier\":10}]'" },
+    { name: "bundle_moon_bag_percent", type: "REAL DEFAULT 0" },
+    { name: "bundle_moon_bag_multiplier", type: "REAL DEFAULT 0" },
+    { name: "bundle_stop_loss_percent", type: "REAL DEFAULT 50" },
+  ];
+  
+  for (const col of bundleColumns) {
+    try {
+      db.exec(`ALTER TABLE sniper_settings ADD COLUMN ${col.name} ${col.type}`);
+    } catch (e: any) {
+      // Column already exists - ignore error
+    }
+  }
+  
+  // Safe migration: add snipe_mode column to positions if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE positions ADD COLUMN snipe_mode TEXT DEFAULT 'creator'`);
   } catch (e: any) {
     // Column already exists - ignore error
   }
@@ -485,6 +521,12 @@ export function getSniperSettings(userId: string): SniperSettings | undefined {
     ...row,
     auto_buy_enabled: Boolean(row.auto_buy_enabled),
     tp_brackets: JSON.parse(row.tp_brackets) as TakeProfitBracket[],
+    bundle_auto_buy_enabled: Boolean(row.bundle_auto_buy_enabled),
+    bundle_tp_brackets: row.bundle_tp_brackets ? JSON.parse(row.bundle_tp_brackets) as TakeProfitBracket[] : [
+      { percentage: 50, multiplier: 2 },
+      { percentage: 30, multiplier: 5 },
+      { percentage: 20, multiplier: 10 },
+    ],
   };
   sniperSettingsCache.set(userId, settings);
   return settings;
@@ -524,6 +566,15 @@ export function updateSniperSettings(userId: string, updates: Partial<InsertSnip
   if (updates.moon_bag_multiplier !== undefined) { fields.push("moon_bag_multiplier = ?"); values.push(updates.moon_bag_multiplier); }
   if (updates.stop_loss_percent !== undefined) { fields.push("stop_loss_percent = ?"); values.push(updates.stop_loss_percent); }
   if (updates.max_open_positions !== undefined) { fields.push("max_open_positions = ?"); values.push(updates.max_open_positions); }
+  // Bundle sniper settings
+  if (updates.bundle_auto_buy_enabled !== undefined) { fields.push("bundle_auto_buy_enabled = ?"); values.push(updates.bundle_auto_buy_enabled ? 1 : 0); }
+  if (updates.bundle_buy_amount_sol !== undefined) { fields.push("bundle_buy_amount_sol = ?"); values.push(updates.bundle_buy_amount_sol); }
+  if (updates.bundle_slippage_percent !== undefined) { fields.push("bundle_slippage_percent = ?"); values.push(updates.bundle_slippage_percent); }
+  if (updates.bundle_jito_tip_sol !== undefined) { fields.push("bundle_jito_tip_sol = ?"); values.push(updates.bundle_jito_tip_sol); }
+  if (updates.bundle_tp_brackets !== undefined) { fields.push("bundle_tp_brackets = ?"); values.push(JSON.stringify(updates.bundle_tp_brackets)); }
+  if (updates.bundle_moon_bag_percent !== undefined) { fields.push("bundle_moon_bag_percent = ?"); values.push(updates.bundle_moon_bag_percent); }
+  if (updates.bundle_moon_bag_multiplier !== undefined) { fields.push("bundle_moon_bag_multiplier = ?"); values.push(updates.bundle_moon_bag_multiplier); }
+  if (updates.bundle_stop_loss_percent !== undefined) { fields.push("bundle_stop_loss_percent = ?"); values.push(updates.bundle_stop_loss_percent); }
   
   if (fields.length > 0) {
     fields.push("updated_at = ?");
@@ -561,8 +612,8 @@ export function getOrCreateSniperSettings(userId: string): SniperSettings {
 // Position operations
 export function createPosition(position: InsertPosition): Position {
   const result = db.prepare(`
-    INSERT INTO positions (user_id, token_address, token_symbol, token_name, entry_price_sol, entry_amount_sol, tokens_bought, tokens_remaining, current_price_sol, unrealized_pnl_percent, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO positions (user_id, token_address, token_symbol, token_name, entry_price_sol, entry_amount_sol, tokens_bought, tokens_remaining, current_price_sol, unrealized_pnl_percent, status, snipe_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     position.user_id,
     position.token_address,
@@ -574,7 +625,8 @@ export function createPosition(position: InsertPosition): Position {
     position.tokens_remaining,
     position.current_price_sol || 0,
     position.unrealized_pnl_percent || 0,
-    position.status || "open"
+    position.status || "open",
+    position.snipe_mode || "creator"
   );
   return getPosition(result.lastInsertRowid as number)!;
 }

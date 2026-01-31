@@ -170,6 +170,7 @@ export type TakeProfitBracket = z.infer<typeof takeProfitBracketSchema>;
 
 export const sniperSettingsSchema = z.object({
   user_id: z.string(),
+  // Creator sniper settings
   auto_buy_enabled: z.boolean().default(false),
   buy_amount_sol: z.number().default(0.1),
   slippage_percent: z.number().default(20),
@@ -184,6 +185,19 @@ export const sniperSettingsSchema = z.object({
   moon_bag_multiplier: z.number().default(0),
   stop_loss_percent: z.number().default(50),
   max_open_positions: z.number().default(5),
+  // Bundle sniper settings (separate from creator sniper)
+  bundle_auto_buy_enabled: z.boolean().default(false),
+  bundle_buy_amount_sol: z.number().default(0.1),
+  bundle_slippage_percent: z.number().default(20),
+  bundle_jito_tip_sol: z.number().default(0.005),
+  bundle_tp_brackets: z.array(takeProfitBracketSchema).default([
+    { percentage: 50, multiplier: 2 },
+    { percentage: 30, multiplier: 5 },
+    { percentage: 20, multiplier: 10 },
+  ]),
+  bundle_moon_bag_percent: z.number().default(0),
+  bundle_moon_bag_multiplier: z.number().default(0),
+  bundle_stop_loss_percent: z.number().default(50),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -223,6 +237,7 @@ export const positionSchema = z.object({
   tp2_hit: z.boolean().default(false),
   tp3_hit: z.boolean().default(false),
   status: z.enum(["open", "closed", "partial"]).default("open"),
+  snipe_mode: z.enum(["creator", "bundle"]).default("creator"),
   created_at: z.string().optional(),
   closed_at: z.string().nullable().optional(),
 });
