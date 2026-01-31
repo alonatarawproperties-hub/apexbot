@@ -98,7 +98,7 @@ export async function snipeToken(
   const actualBuyAmount = buyAmountOverride ?? (mode === "bundle" ? settings.bundle_buy_amount_sol : settings.buy_amount_sol) ?? 0.1;
   const jitoTip = mode === "bundle" ? (settings.bundle_jito_tip_sol ?? 0.005) : settings.jito_tip_sol;
   const slippage = mode === "bundle" ? (settings.bundle_slippage_percent ?? 20) : settings.slippage_percent;
-  const priorityFee = settings.priority_fee_lamports / 1_000_000; // Convert lamports to SOL for API
+  const priorityFee = mode === "bundle" ? (settings.bundle_priority_fee_sol ?? 0.0001) : (settings.priority_fee_lamports / LAMPORTS_PER_SOL);
 
   // Minimum buy amount for pump.fun - transactions below this will fail or receive 0 tokens
   const MIN_BUY_AMOUNT_SOL = 0.0001;
@@ -423,8 +423,10 @@ export async function sellPosition(
   const slippage = position.snipe_mode === "bundle" 
     ? (settings.bundle_slippage_percent ?? 20) 
     : settings.slippage_percent;
-  const priorityFee = settings.priority_fee_lamports / 1_000_000;
-  
+  const priorityFee = position.snipe_mode === "bundle"
+    ? (settings.bundle_priority_fee_sol ?? 0.0001)
+    : (settings.priority_fee_lamports / LAMPORTS_PER_SOL);
+
   const connection = getConnection();
   const tokenMint = new PublicKey(position.token_address);
   
