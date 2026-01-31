@@ -13,6 +13,7 @@ import {
   sellTokens, 
   getWalletBalance 
 } from "../services/sniperService";
+import { clearPausedAlert } from "../services/alertService";
 import type { SniperSettings, Position } from "@shared/schema";
 
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
@@ -1048,6 +1049,7 @@ async function handleSellAction(ctx: Context, userId: string, value: string): Pr
   );
   
   if (result.success) {
+    clearPausedAlert(userId);
     await ctx.answerCallbackQuery({ text: `Sold ${percent}%!` });
     await showPositionsMenu(ctx, userId);
   } else {

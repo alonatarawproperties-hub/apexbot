@@ -36,6 +36,9 @@ function resetPending(userId: string, snipeMode: string): void {
   pendingSnipeCounts.set(key, 0);
 }
 
+// Track which users have been notified about paused alerts (so we only notify once)
+const pausedNotified: Set<string> = new Set();
+
 export function setBotInstance(bot: Bot): void {
   botInstance = bot;
 }
@@ -308,6 +311,16 @@ export async function sendBundleAlert(
         const pendingCount = getPendingCount(user.telegram_id, "bundle");
         if (bundleOpenCount + pendingCount >= bundleMaxPositions) {
           logger.info(`[ALERT_SKIP] Suppressing bundle alert for ${user.telegram_id} - positions full (${bundleOpenCount}/${bundleMaxPositions})`);
+          // Send paused notification once
+          if (!pausedNotified.has(user.telegram_id)) {
+            pausedNotified.add(user.telegram_id);
+            botInstance?.api.sendMessage(user.telegram_id,
+              `⏸️ *ALERTS PAUSED*\n\n` +
+              `Max positions reached \\(${bundleOpenCount}/${bundleMaxPositions}\\)\\.\n` +
+              `Alerts will automatically resume when a position closes via TP/SL or manual sell\\.`,
+              { parse_mode: "MarkdownV2" }
+            ).catch((e) => logger.error(`Failed to send paused msg: ${e.message}`));
+          }
           return;
         }
       }
@@ -445,4 +458,11 @@ export async function sendTPSLNotification(
   } catch (e: any) {
     logger.error(`Failed to send TP/SL notification to ${userId}: ${e.message}`);
   }
+
+  // Clear paused flag so alerts resume after position closes
+  pausedNotified.delete(userId);
+}
+
+export function clearPausedAlert(userId: string): void {
+  pausedNotified.delete(userId);
 }
