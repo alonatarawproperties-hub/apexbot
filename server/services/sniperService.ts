@@ -172,27 +172,68 @@ export async function snipeToken(
       
       logger.info(`Transaction sent: ${txSignature}`);
       
-      const confirmation = await connection.confirmTransaction(txSignature, "confirmed");
+      // Try to confirm with timeout, but don't fail if it times out
+      let confirmed = false;
+      let confirmError: string | null = null;
       
-      if (confirmation.value.err) {
-        const errorStr = JSON.stringify(confirmation.value.err);
-        let friendlyError = errorStr;
+      try {
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+        const confirmation = await Promise.race([
+          connection.confirmTransaction({
+            signature: txSignature,
+            blockhash,
+            lastValidBlockHeight,
+          }, "confirmed"),
+          new Promise<null>((_, reject) => 
+            setTimeout(() => reject(new Error("Confirmation timeout")), 60000)
+          )
+        ]);
         
-        // Parse common PumpFun errors
-        if (errorStr.includes('"Custom":101')) {
-          friendlyError = "Slippage exceeded - try increasing slippage";
-        } else if (errorStr.includes('"Custom":100')) {
-          friendlyError = "Insufficient funds in wallet";
-        } else if (errorStr.includes('"Custom":102')) {
-          friendlyError = "Token not available for trading";
-        } else if (errorStr.includes('"Custom":6000')) {
-          friendlyError = "Bonding curve complete - token graduated";
-        } else if (errorStr.includes('InsufficientFunds')) {
-          friendlyError = "Insufficient SOL balance";
+        if (confirmation && typeof confirmation === 'object' && 'value' in confirmation) {
+          if (confirmation.value.err) {
+            const errorStr = JSON.stringify(confirmation.value.err);
+            
+            if (errorStr.includes('"Custom":101')) {
+              confirmError = "Slippage exceeded - try increasing slippage";
+            } else if (errorStr.includes('"Custom":100')) {
+              confirmError = "Insufficient funds in wallet";
+            } else if (errorStr.includes('"Custom":102')) {
+              confirmError = "Token not available for trading";
+            } else if (errorStr.includes('"Custom":6000')) {
+              confirmError = "Bonding curve complete - token graduated";
+            } else if (errorStr.includes('InsufficientFunds')) {
+              confirmError = "Insufficient SOL balance";
+            } else {
+              confirmError = errorStr;
+            }
+          } else {
+            confirmed = true;
+          }
         }
-        
-        return { success: false, error: friendlyError };
+      } catch (confirmErr: any) {
+        // Timeout or other confirmation error - transaction may still have succeeded
+        logger.warn(`Confirmation uncertain for ${txSignature}: ${confirmErr.message}`);
       }
+      
+      if (confirmError) {
+        return { success: false, error: confirmError };
+      }
+      
+      // If not confirmed but no error, check if transaction exists on-chain
+      if (!confirmed) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        try {
+          const status = await connection.getSignatureStatus(txSignature);
+          if (status.value?.err) {
+            return { success: false, error: "Transaction failed on-chain" };
+          }
+          // Transaction exists and no error - likely succeeded
+          confirmed = status.value !== null;
+        } catch (e) {
+          // Continue anyway - we'll check token balance
+        }
+      }
+      
     } catch (sendError: any) {
       logger.error(`Transaction send failed: ${sendError.message}`);
       return { success: false, error: `Send failed: ${sendError.message}` };
