@@ -136,6 +136,7 @@ function runMigrations(): void {
       bundle_moon_bag_percent REAL DEFAULT 0,
       bundle_moon_bag_multiplier REAL DEFAULT 0,
       bundle_stop_loss_percent REAL DEFAULT 50,
+      bundle_max_open_positions INTEGER DEFAULT 5,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(telegram_id)
@@ -210,6 +211,7 @@ function runMigrations(): void {
     { name: "bundle_moon_bag_percent", type: "REAL DEFAULT 0" },
     { name: "bundle_moon_bag_multiplier", type: "REAL DEFAULT 0" },
     { name: "bundle_stop_loss_percent", type: "REAL DEFAULT 50" },
+    { name: "bundle_max_open_positions", type: "INTEGER DEFAULT 5" },
   ];
   
   for (const col of bundleColumns) {
@@ -575,6 +577,7 @@ export function updateSniperSettings(userId: string, updates: Partial<InsertSnip
   if (updates.bundle_moon_bag_percent !== undefined) { fields.push("bundle_moon_bag_percent = ?"); values.push(updates.bundle_moon_bag_percent); }
   if (updates.bundle_moon_bag_multiplier !== undefined) { fields.push("bundle_moon_bag_multiplier = ?"); values.push(updates.bundle_moon_bag_multiplier); }
   if (updates.bundle_stop_loss_percent !== undefined) { fields.push("bundle_stop_loss_percent = ?"); values.push(updates.bundle_stop_loss_percent); }
+  if (updates.bundle_max_open_positions !== undefined) { fields.push("bundle_max_open_positions = ?"); values.push(updates.bundle_max_open_positions); }
   
   if (fields.length > 0) {
     fields.push("updated_at = ?");
@@ -604,6 +607,19 @@ export function getOrCreateSniperSettings(userId: string): SniperSettings {
       moon_bag_multiplier: 0,
       stop_loss_percent: 50,
       max_open_positions: 5,
+      bundle_auto_buy_enabled: false,
+      bundle_buy_amount_sol: 0.1,
+      bundle_slippage_percent: 20,
+      bundle_jito_tip_sol: 0.005,
+      bundle_tp_brackets: [
+        { percentage: 50, multiplier: 2 },
+        { percentage: 30, multiplier: 5 },
+        { percentage: 20, multiplier: 10 },
+      ],
+      bundle_moon_bag_percent: 0,
+      bundle_moon_bag_multiplier: 0,
+      bundle_stop_loss_percent: 50,
+      bundle_max_open_positions: 5,
     });
   }
   return settings;
@@ -672,6 +688,14 @@ export function getOpenPositions(): Position[] {
 export function getUserOpenPositionCount(userId: string): number {
   const row = db.prepare("SELECT COUNT(*) as count FROM positions WHERE user_id = ? AND (status = 'open' OR status = 'partial')").get(userId) as any;
   return row?.count || 0;
+}
+
+export function getOpenPositionsCount(userId: string, snipeMode?: string): number {
+  if (snipeMode) {
+    const row = db.prepare("SELECT COUNT(*) as count FROM positions WHERE user_id = ? AND (status = 'open' OR status = 'partial') AND snipe_mode = ?").get(userId, snipeMode) as any;
+    return row?.count || 0;
+  }
+  return getUserOpenPositionCount(userId);
 }
 
 export function updatePosition(id: number, updates: Partial<Position>): void {

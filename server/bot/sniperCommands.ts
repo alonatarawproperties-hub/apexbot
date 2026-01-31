@@ -18,7 +18,7 @@ import type { SniperSettings, Position } from "@shared/schema";
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
 
 // Conversation state for custom input
-type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp" | "b_jito" | "b_sl" | "b_tp_pct" | "b_tp_mult" | "b_moon" | "b_moon_mult" | "b_buy" | "b_slip" | "b_straight_tp";
+type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp" | "b_jito" | "b_sl" | "b_tp_pct" | "b_tp_mult" | "b_moon" | "b_moon_mult" | "b_buy" | "b_slip" | "b_straight_tp" | "b_max_pos";
 interface PendingInput {
   type: InputType;
   tpIndex?: number; // For editing specific TP bracket
@@ -195,6 +195,15 @@ export async function handleCustomInput(ctx: Context, text: string): Promise<boo
       }
       db.updateSniperSettings(userId, { bundle_stop_loss_percent: value });
       await ctx.reply(value === 0 ? "Bundle stop loss disabled" : `Bundle stop loss set to -${value}%`);
+      break;
+    case "b_max_pos":
+      const bMaxPosValue = Math.floor(value);
+      if (isNaN(bMaxPosValue) || bMaxPosValue < 1 || bMaxPosValue > 999) {
+        await ctx.reply("Max positions must be between 1 and 999.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_max_open_positions: bMaxPosValue });
+      await ctx.reply(bMaxPosValue === 999 ? "Bundle max positions set to unlimited" : `Bundle max positions set to ${bMaxPosValue}`);
       break;
     case "b_moon":
       if (value < 0 || value > 100) {
@@ -483,6 +492,13 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
       case "b_edit_tp":
         await showBundleTPMenu(ctx, userId);
         break;
+      case "b_edit_max_pos":
+        await promptBundleEditMaxPos(ctx, userId);
+        break;
+      case "b_set_max_pos":
+        db.updateSniperSettings(userId, { bundle_max_open_positions: parseInt(value) });
+        await showBundleSniperMenu(ctx, userId);
+        break;
       case "b_toggle_autobuy":
         await toggleBundleAutoBuy(ctx, userId);
         break;
@@ -590,6 +606,7 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
           b_slip: "Enter bundle slippage percentage:",
           b_jito: "Enter bundle Jito tip in SOL:",
           b_sl: "Enter bundle stop loss percentage (0 to disable):",
+          b_max_pos: "Enter max positions (999 for unlimited):",
         };
         await ctx.reply(prompts[value] || "Enter value:");
         break;
@@ -659,6 +676,8 @@ async function showSettingsMenu(ctx: Context, userId: string): Promise<void> {
 
 async function showBundleSniperMenu(ctx: Context, userId: string): Promise<void> {
   const settings = db.getOrCreateSniperSettings(userId);
+  const bundleMaxPos = settings.bundle_max_open_positions ?? 5;
+  const bundleOpenCount = db.getOpenPositionsCount(userId, "bundle");
   
   const keyboard = new InlineKeyboard()
     .text(`Buy: ${settings.bundle_buy_amount_sol ?? 0.1} SOL`, "sniper:b_edit_buy")
@@ -668,6 +687,8 @@ async function showBundleSniperMenu(ctx: Context, userId: string): Promise<void>
     .text(`SL: -${settings.bundle_stop_loss_percent ?? 50}%`, "sniper:b_edit_sl")
     .row()
     .text("📈 Edit Take Profit", "sniper:b_edit_tp")
+    .row()
+    .text(`📊 Max Positions: ${bundleMaxPos === 999 ? "∞" : bundleMaxPos}`, "sniper:b_edit_max_pos")
     .row()
     .text(settings.bundle_auto_buy_enabled ? "🟢 Auto-Buy ON" : "🔴 Auto-Buy OFF", "sniper:b_toggle_autobuy")
     .row()
@@ -693,6 +714,8 @@ _For auto\\-sniping dev bundles_
 *Stop Loss:* \\-${formatMarkdownValue(settings.bundle_stop_loss_percent ?? 50)}%
 
 📈 *Take Profit:*${tpText || "\n_Not configured_"}
+
+📊 *Max Positions:* ${formatMarkdownValue(bundleMaxPos === 999 ? "∞" : bundleMaxPos)} \\(${formatMarkdownValue(bundleOpenCount)} open\\)
 
 🎯 *Auto\\-Buy:* ${settings.bundle_auto_buy_enabled ? "Enabled" : "Disabled"}`,
     {
@@ -1209,6 +1232,7 @@ async function promptCustomInput(ctx: Context, userId: string, inputType: InputT
     b_buy: "Enter bundle buy amount in SOL (e.g., 0.25):",
     b_slip: "Enter bundle slippage percentage (e.g., 25):",
     b_straight_tp: "Enter bundle straight TP multiplier (e.g., 2 for 100% sell at 2x):",
+    b_max_pos: "Enter bundle max positions (999 for unlimited):",
   };
   
   await ctx.answerCallbackQuery();
@@ -1569,6 +1593,30 @@ async function promptBundleEditStopLoss(ctx: Context, userId: string): Promise<v
 Current: \\-${formatMarkdownValue(settings.bundle_stop_loss_percent ?? 50)}%
 
 Sells 100% when price drops by this %`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function promptBundleEditMaxPos(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const currentMax = settings.bundle_max_open_positions ?? 5;
+  const keyboard = new InlineKeyboard()
+    .text("3", "sniper:b_set_max_pos:3")
+    .text("5", "sniper:b_set_max_pos:5")
+    .text("10", "sniper:b_set_max_pos:10")
+    .row()
+    .text("20", "sniper:b_set_max_pos:20")
+    .text("∞", "sniper:b_set_max_pos:999")
+    .text("Custom", "sniper:b_custom:b_max_pos")
+    .row()
+    .text("← Back", "sniper:bundle_settings");
+  
+  await ctx.editMessageText(
+    `*BUNDLE MAX POSITIONS*
+
+Current: ${formatMarkdownValue(currentMax === 999 ? "∞" : currentMax)}
+
+999 \\= unlimited positions`,
     { parse_mode: "MarkdownV2", reply_markup: keyboard }
   );
 }

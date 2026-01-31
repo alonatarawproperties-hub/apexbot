@@ -279,14 +279,14 @@ export async function sendBundleAlert(
         const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
         const buyAmountSOL = sniperSettings.bundle_buy_amount_sol ?? 0.1;
         
-        // Check max open positions limit (999 = unlimited, skip check)
-        const maxPositions = sniperSettings.max_open_positions ?? 5;
-        if (maxPositions < 999) {
-          const openCount = db.getUserOpenPositionCount(user.telegram_id);
-          if (openCount >= maxPositions) {
+        // Check max open positions limit for BUNDLE sniper (999 = unlimited, skip check)
+        const bundleMaxPositions = sniperSettings.bundle_max_open_positions ?? 5;
+        if (bundleMaxPositions < 999) {
+          const bundleOpenCount = db.getOpenPositionsCount(user.telegram_id, "bundle");
+          if (bundleOpenCount >= bundleMaxPositions) {
             botInstance?.api.sendMessage(user.telegram_id,
               `⏸️ *BUNDLE SNIPE PAUSED*\n\n` +
-              `Max positions limit reached (${openCount}/${maxPositions})\n` +
+              `Max positions limit reached (${bundleOpenCount}/${bundleMaxPositions})\n` +
               `Sell a position to resume auto-sniping.`,
               { parse_mode: "Markdown" }
             ).catch((e) => logger.error(`Failed to send max positions msg: ${e.message}`));
