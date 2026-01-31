@@ -299,12 +299,26 @@ export async function sendBundleAlert(
   };
   
   try {
+    // Check if auto-snipe is enabled and positions are full - suppress alert entirely
+    if (autoSnipe) {
+      const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
+      const bundleMaxPositions = sniperSettings.bundle_max_open_positions ?? 5;
+      if (bundleMaxPositions < 999) {
+        const bundleOpenCount = db.getOpenPositionsCount(user.telegram_id, "bundle");
+        const pendingCount = getPendingCount(user.telegram_id, "bundle");
+        if (bundleOpenCount + pendingCount >= bundleMaxPositions) {
+          logger.info(`[ALERT_SKIP] Suppressing bundle alert for ${user.telegram_id} - positions full (${bundleOpenCount}/${bundleMaxPositions})`);
+          return;
+        }
+      }
+    }
+
     await botInstance.api.sendMessage(user.telegram_id, message, {
       parse_mode: "MarkdownV2",
       reply_markup: keyboard,
       link_preview_options: { is_disabled: true },
     });
-    
+
     db.logAlert({
       user_id: user.telegram_id,
       creator_address: creatorAddress,
@@ -312,11 +326,11 @@ export async function sendBundleAlert(
       alert_type: "bundle",
       delivered: 1,
     });
-    
+
     db.incrementUserAlerts(user.telegram_id);
-    
+
     logger.alert(`Bundle alert sent to ${user.telegram_id} for ${symbol} (${devBuySOL.toFixed(2)} SOL)`);
-    
+
     // Auto-snipe if enabled - uses bundle sniper settings
     if (autoSnipe) {
       const wallet = db.getWallet(user.telegram_id);
