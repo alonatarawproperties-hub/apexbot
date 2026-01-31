@@ -26,6 +26,14 @@ interface PendingInput {
 }
 const pendingInputs = new Map<string, PendingInput>();
 
+async function editOrReply(ctx: Context, text: string, options: Parameters<Context["editMessageText"]>[1]): Promise<void> {
+  try {
+    await ctx.editMessageText(text, options);
+  } catch {
+    await ctx.reply(text, options);
+  }
+}
+
 export function hasPendingInput(userId: string): boolean {
   return pendingInputs.has(userId);
 }
@@ -431,6 +439,12 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
       case "export_wallet":
         await exportWallet(ctx, userId);
         break;
+      case "delete_wallet":
+        await promptDeleteWallet(ctx, userId);
+        break;
+      case "confirm_delete_wallet":
+        await deleteWallet(ctx, userId);
+        break;
       case "show_address":
         await showWalletAddress(ctx, userId);
         break;
@@ -757,7 +771,8 @@ async function showWalletMenu(ctx: Context, userId: string): Promise<void> {
       .row()
       .text("← Back", "sniper:back");
     
-    await ctx.editMessageText(
+    await editOrReply(
+      ctx,
       `💼 *WALLET*
 
 No wallet configured yet\\.
@@ -781,9 +796,13 @@ Choose an option:
     .text("🔑 Export Key", "sniper:export_wallet")
     .text("🔄 New Wallet", "sniper:new_wallet")
     .row()
+    .text("📥 Import Wallet", "sniper:import_wallet")
+    .text("🗑 Delete Wallet", "sniper:delete_wallet")
+    .row()
     .text("← Back", "sniper:back");
   
-  await ctx.editMessageText(
+  await editOrReply(
+    ctx,
     `💼 *YOUR WALLET*
 
 *Address:*
@@ -965,22 +984,35 @@ async function createNewWallet(ctx: Context, userId: string): Promise<void> {
   
   await ctx.answerCallbackQuery({ text: "New wallet generated!" });
   
-  await ctx.editMessageText(
-    `✅ *NEW WALLET CREATED*
+  try {
+    await ctx.editMessageText(
+      `✅ *NEW WALLET CREATED*
 
 *Address:*
 \`${publicKey}\`
 
 ⚠️ *IMPORTANT:* Export and save your private key\\!
 Send SOL to this address to start sniping\\.`,
-    {
-      parse_mode: "MarkdownV2",
-      reply_markup: new InlineKeyboard()
-        .text("🔑 Export Key", "sniper:export_wallet")
-        .row()
-        .text("← Back", "sniper:wallet"),
-    }
-  );
+      {
+        parse_mode: "MarkdownV2",
+        reply_markup: new InlineKeyboard()
+          .text("🔑 Export Key", "sniper:export_wallet")
+          .row()
+          .text("← Back", "sniper:wallet"),
+      }
+    );
+  } catch {
+    await ctx.reply(
+      `✅ *NEW WALLET CREATED*
+
+*Address:*
+\`${publicKey}\`
+
+⚠️ *IMPORTANT:* Export and save your private key\\!
+Send SOL to this address to start sniping\\.`,
+      { parse_mode: "MarkdownV2" }
+    );
+  }
 }
 
 async function promptImportWallet(ctx: Context, userId: string): Promise<void> {
@@ -1004,10 +1036,15 @@ Reply with your private key:`,
 }
 
 async function exportWallet(ctx: Context, userId: string): Promise<void> {
+  const wallet = db.getWallet(userId);
+  if (!wallet) {
+    await ctx.answerCallbackQuery({ text: "No wallet found" });
+    return;
+  }
   const privateKey = exportPrivateKey(userId);
   
   if (!privateKey) {
-    await ctx.answerCallbackQuery({ text: "No wallet found" });
+    await ctx.answerCallbackQuery({ text: "Wallet decryption failed. Delete and re-import." });
     return;
   }
   
@@ -1027,6 +1064,40 @@ This message will NOT auto\\-delete\\. Delete it manually after saving\\.`,
   await ctx.answerCallbackQuery({ text: "Key sent in private message" });
 }
 
+async function promptDeleteWallet(ctx: Context, userId: string): Promise<void> {
+  const wallet = db.getWallet(userId);
+  if (!wallet) {
+    await ctx.answerCallbackQuery({ text: "No wallet found" });
+    return;
+  }
+
+  await editOrReply(
+    ctx,
+    `🗑 *DELETE WALLET*
+
+This will remove the stored wallet from the bot\\.
+You can re-import it later using your private key\\.
+
+Are you sure?`,
+    {
+      parse_mode: "MarkdownV2",
+      reply_markup: new InlineKeyboard()
+        .text("✅ Yes, delete", "sniper:confirm_delete_wallet")
+        .row()
+        .text("← Cancel", "sniper:wallet"),
+    }
+  );
+}
+
+async function deleteWallet(ctx: Context, userId: string): Promise<void> {
+  const deleted = db.deleteWallet(userId);
+  await ctx.answerCallbackQuery({ text: deleted ? "Wallet deleted" : "No wallet found" });
+  if (deleted) {
+    await ctx.deleteMessage().catch(() => {});
+    await ctx.reply("✅ Wallet deleted. You can generate or import a new one.", { parse_mode: "MarkdownV2" });
+  }
+  await showWalletMenu(ctx, userId);
+}
 async function showWalletAddress(ctx: Context, userId: string): Promise<void> {
   const wallet = db.getWallet(userId);
   if (!wallet) {
