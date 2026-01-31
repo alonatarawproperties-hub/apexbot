@@ -36,6 +36,9 @@ function resetPending(userId: string, snipeMode: string): void {
   pendingSnipeCounts.set(key, 0);
 }
 
+// Track which users have been notified about paused alerts (so we only notify once)
+const pausedNotified: Set<string> = new Set();
+
 export function setBotInstance(bot: Bot): void {
   botInstance = bot;
 }
@@ -299,12 +302,36 @@ export async function sendBundleAlert(
   };
   
   try {
+    // Check if auto-snipe is enabled and positions are full - suppress alert entirely
+    if (autoSnipe) {
+      const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
+      const bundleMaxPositions = sniperSettings.bundle_max_open_positions ?? 5;
+      if (bundleMaxPositions < 999) {
+        const bundleOpenCount = db.getOpenPositionsCount(user.telegram_id, "bundle");
+        const pendingCount = getPendingCount(user.telegram_id, "bundle");
+        if (bundleOpenCount + pendingCount >= bundleMaxPositions) {
+          logger.info(`[ALERT_SKIP] Suppressing bundle alert for ${user.telegram_id} - positions full (${bundleOpenCount}/${bundleMaxPositions})`);
+          // Send paused notification once
+          if (!pausedNotified.has(user.telegram_id)) {
+            pausedNotified.add(user.telegram_id);
+            botInstance?.api.sendMessage(user.telegram_id,
+              `⏸️ *ALERTS PAUSED*\n\n` +
+              `Max positions reached \\(${bundleOpenCount}/${bundleMaxPositions}\\)\\.\n` +
+              `Alerts will automatically resume when a position closes via TP/SL or manual sell\\.`,
+              { parse_mode: "MarkdownV2" }
+            ).catch((e) => logger.error(`Failed to send paused msg: ${e.message}`));
+          }
+          return;
+        }
+      }
+    }
+
     await botInstance.api.sendMessage(user.telegram_id, message, {
       parse_mode: "MarkdownV2",
       reply_markup: keyboard,
       link_preview_options: { is_disabled: true },
     });
-    
+
     db.logAlert({
       user_id: user.telegram_id,
       creator_address: creatorAddress,
@@ -312,11 +339,11 @@ export async function sendBundleAlert(
       alert_type: "bundle",
       delivered: 1,
     });
-    
+
     db.incrementUserAlerts(user.telegram_id);
-    
+
     logger.alert(`Bundle alert sent to ${user.telegram_id} for ${symbol} (${devBuySOL.toFixed(2)} SOL)`);
-    
+
     // Auto-snipe if enabled - uses bundle sniper settings
     if (autoSnipe) {
       const wallet = db.getWallet(user.telegram_id);
@@ -397,4 +424,45 @@ export async function sendBundleAlert(
       delivered: 0,
     });
   }
+}
+
+export async function sendTPSLNotification(
+  userId: string,
+  tokenSymbol: string | null,
+  triggerType: "stop_loss" | "take_profit",
+  triggerLabel: string,
+  entryAmountSol: number,
+  pnlPercent: number,
+  txSignature?: string
+): Promise<void> {
+  if (!botInstance) return;
+
+  const symbol = tokenSymbol || "Unknown";
+  const isProfit = pnlPercent >= 0;
+  const emoji = triggerType === "stop_loss" ? "🛑" : "🎯";
+  const statusEmoji = isProfit ? "🟢" : "🔴";
+  const pnlSign = isProfit ? "+" : "";
+  const pnlSol = (entryAmountSol * pnlPercent / 100);
+  const pnlSolSign = pnlSol >= 0 ? "+" : "";
+
+  const message =
+    `${emoji} *AUTO ${triggerType === "stop_loss" ? "STOP LOSS" : "TAKE PROFIT"} TRIGGERED*\n\n` +
+    `Token: $${escapeMarkdown(symbol)}\n` +
+    `Trigger: ${escapeMarkdown(triggerLabel)}\n` +
+    `Entry: ${escapeMarkdown(entryAmountSol.toString())} SOL\n` +
+    `P&L: ${statusEmoji} ${escapeMarkdown(pnlSign + pnlPercent.toFixed(1))}% \\(${escapeMarkdown(pnlSolSign + pnlSol.toFixed(4))} SOL\\)\n` +
+    (txSignature ? `TX: \`${txSignature.slice(0, 20)}\\.\\.\\.\`` : "");
+
+  try {
+    await botInstance.api.sendMessage(userId, message, { parse_mode: "MarkdownV2" });
+  } catch (e: any) {
+    logger.error(`Failed to send TP/SL notification to ${userId}: ${e.message}`);
+  }
+
+  // Clear paused flag so alerts resume after position closes
+  pausedNotified.delete(userId);
+}
+
+export function clearPausedAlert(userId: string): void {
+  pausedNotified.delete(userId);
 }
