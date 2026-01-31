@@ -43,19 +43,35 @@ Preferred communication style: Simple, everyday language.
 - **Position Monitor** (30-second interval): Checks TP/SL triggers for open positions
 
 ### Sniper Bot Architecture
+The system has TWO independent sniper bots that can operate simultaneously:
+
+- **Creator Sniper**: Auto-buys tokens from qualified creators (those meeting bonded/100k thresholds)
+- **Bundle Sniper**: Auto-buys tokens when dev bundles are detected (significant dev buys at launch)
+
+Each sniper has its own independent settings:
+- Buy amount (SOL)
+- Slippage percentage
+- Jito tip (SOL)
+- Take-profit brackets
+- Moon bag percentage and TP multiplier
+- Stop-loss percentage
+
+Core services:
 - **Wallet Service**: AES-256-GCM encrypted wallet storage with WALLET_ENCRYPTION_KEY
 - **Sniper Service**: PumpFun swap execution via bonding curve calculations
 - **Jito Service**: MEV-protected bundle transactions for faster execution
-- **Position Monitor**: Automatic TP/SL execution at configured brackets
+- **Position Monitor**: Automatic TP/SL execution using settings based on position.snipe_mode ("creator" or "bundle")
 
 ### Sniper Bot Features
-- Auto-buy on qualified creator alerts
-- Customizable buy amount, slippage, and Jito tip
-- Take-profit brackets (Conservative/Balanced/Aggressive presets)
-- Moon bag percentage to keep long-term positions
+- Auto-buy on qualified creator alerts OR dev bundle detection
+- Customizable buy amount, slippage, and Jito tip per sniper
+- Take-profit brackets (Conservative/Balanced/Aggressive presets + Straight TP option)
+- Moon bag with configurable TP multiplier (or hold forever)
 - Stop-loss with 100% sell
 - Manual sell controls (50%/100%)
 - Trade history tracking
+- Max open positions limit (999 = unlimited)
+- Position tracking by snipe_mode for correct TP/SL calculation
 
 ### Bundle Detection Feature
 - Detects when token creators buy significant SOL amounts of their own token at launch
@@ -63,8 +79,8 @@ Preferred communication style: Simple, everyday language.
 - Dev buy calculated from marketCapSol field (mcSol - 30 baseline)
 - User-configurable min/max SOL thresholds (default: 2-200 SOL)
 - Separate bundle alerts enable/disable setting
-- Optional auto-snipe with configurable buy amount for bundle detections
-- Settings accessed via Telegram bot: /settings → Bundle Alerts
+- Bundle Sniper has independent settings from Creator Sniper
+- Access via Telegram: /sniper -> Bundle Sniper
 
 ### Key Design Decisions
 - **SQLite over PostgreSQL**: Chosen for simplicity and zero-configuration deployment. Drizzle config exists for potential PostgreSQL migration.
