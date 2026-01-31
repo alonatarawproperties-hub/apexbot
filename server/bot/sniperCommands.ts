@@ -1079,7 +1079,8 @@ async function promptDeleteWallet(ctx: Context, userId: string): Promise<void> {
     return;
   }
 
-  await ctx.editMessageText(
+  await editOrReply(
+    ctx,
     `🗑 *DELETE WALLET*
 
 This will remove the stored wallet from the bot\\.
