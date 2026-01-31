@@ -31,6 +31,11 @@ function decrementPending(userId: string, snipeMode: string): void {
   }
 }
 
+function resetPending(userId: string, snipeMode: string): void {
+  const key = `${userId}:${snipeMode}`;
+  pendingSnipeCounts.set(key, 0);
+}
+
 export function setBotInstance(bot: Bot): void {
   botInstance = bot;
 }
@@ -124,7 +129,15 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
           const maxPositions = sniperSettings.max_open_positions ?? 5;
           if (maxPositions < 999) {
             const openCount = db.getOpenPositionsCount(user.telegram_id, "creator");
-            const pendingCount = getPendingCount(user.telegram_id, "creator");
+            let pendingCount = getPendingCount(user.telegram_id, "creator");
+            
+            // Safety: Reset pending count if stale (no open positions but pending > 0)
+            if (openCount === 0 && pendingCount > 0) {
+              logger.warn(`[MAX_POS] Resetting stale creator pending for ${user.telegram_id}: was ${pendingCount}`);
+              resetPending(user.telegram_id, "creator");
+              pendingCount = 0;
+            }
+            
             const totalCount = openCount + pendingCount;
             
             if (totalCount >= maxPositions) {
@@ -317,13 +330,26 @@ export async function sendBundleAlert(
         const bundleMaxPositions = sniperSettings.bundle_max_open_positions ?? 5;
         if (bundleMaxPositions < 999) {
           const bundleOpenCount = db.getOpenPositionsCount(user.telegram_id, "bundle");
-          const pendingCount = getPendingCount(user.telegram_id, "bundle");
+          let pendingCount = getPendingCount(user.telegram_id, "bundle");
+          
+          // Safety: Reset pending count if it's stale (no open positions but pending > 0)
+          // This can happen if the app restarts or snipes fail unexpectedly
+          if (bundleOpenCount === 0 && pendingCount > 0) {
+            logger.warn(`[MAX_POS] Resetting stale pending count for ${user.telegram_id}: was ${pendingCount}`);
+            resetPending(user.telegram_id, "bundle");
+            pendingCount = 0;
+          }
+          
           const totalCount = bundleOpenCount + pendingCount;
           
+          logger.info(`[MAX_POS] Bundle check: open=${bundleOpenCount}, pending=${pendingCount}, total=${totalCount}, max=${bundleMaxPositions}`);
+          
           if (totalCount >= bundleMaxPositions) {
+            // Show both open and pending in message for clarity
+            const displayCount = pendingCount > 0 ? `${bundleOpenCount}+${pendingCount} pending` : `${bundleOpenCount}`;
             botInstance?.api.sendMessage(user.telegram_id,
               `⏸️ *BUNDLE SNIPE PAUSED*\n\n` +
-              `Max positions limit reached (${bundleOpenCount}/${bundleMaxPositions})\n` +
+              `Max positions limit reached (${displayCount}/${bundleMaxPositions})\n` +
               `Sell a position to resume auto-sniping.`,
               { parse_mode: "Markdown" }
             ).catch((e) => logger.error(`Failed to send max positions msg: ${e.message}`));
