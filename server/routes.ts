@@ -4,6 +4,7 @@ import * as db from "./db";
 import type { BotStatus } from "@shared/schema";
 import { getBot, isBotRunning, startBot } from "./bot";
 import { startPumpPortalStream, isPumpPortalConnected } from "./services/pumpPortalService";
+import { startPositionMonitor } from "./services/positionMonitor";
 import { startMcTracker } from "./jobs/mcTracker";
 import { startStatsAggregator } from "./jobs/statsAggregator";
 import { runBackfill, getBackfillStatus } from "./jobs/backfillJob";
@@ -19,6 +20,7 @@ export async function registerRoutes(
   await startBot();
   
   startPumpPortalStream();
+  startPositionMonitor();
   startMcTracker();
   startStatsAggregator();
   
