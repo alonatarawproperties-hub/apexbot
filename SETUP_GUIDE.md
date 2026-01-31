@@ -120,8 +120,72 @@ You should now see the bot respond to **/start** in Telegram.
 ---
 
 ## ✅ OPTIONAL — Keep it running 24/7
+Use a process manager so the bot restarts after crashes or reboots.
+
+### Option A — PM2 (simple)
+1) Install PM2 (if you see `EACCES`, use the sudo line):
+```bash
+sudo npm install -g pm2
+```
+If you cannot use `sudo`, install locally:
+```bash
+npm install pm2
+```
+Then use `npx pm2` in the commands below.
+
+2) Build once, then start with your `.env` loaded:
 ```bash
 npm run build
-NODE_ENV=production npm start
+pm2 start "bash -lc 'set -a && source .env && set +a && npm start'" --name apexbot
 ```
-Use a process manager (systemd/pm2) for auto‑restart.
+
+3) Enable auto‑start on reboot:
+```bash
+pm2 save
+pm2 startup
+```
+PM2 will print one more command — copy/paste it to finish setup.
+
+4) Check logs:
+```bash
+pm2 status
+pm2 logs apexbot
+```
+
+### Option B — systemd (server‑grade)
+1) Create a service file:
+```bash
+sudo nano /etc/systemd/system/apexbot.service
+```
+
+2) Paste (edit paths + username):
+```ini
+[Unit]
+Description=Apex Bot
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/apexbot
+EnvironmentFile=/home/YOUR_USERNAME/apexbot/.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+3) Enable + start:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable apexbot
+sudo systemctl start apexbot
+```
+
+4) Check logs:
+```bash
+sudo systemctl status apexbot
+journalctl -u apexbot -f
+```

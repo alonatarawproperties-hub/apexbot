@@ -26,6 +26,14 @@ interface PendingInput {
 }
 const pendingInputs = new Map<string, PendingInput>();
 
+async function editOrReply(ctx: Context, text: string, options: Parameters<Context["editMessageText"]>[1]): Promise<void> {
+  try {
+    await ctx.editMessageText(text, options);
+  } catch {
+    await ctx.reply(text, options);
+  }
+}
+
 export function hasPendingInput(userId: string): boolean {
   return pendingInputs.has(userId);
 }
@@ -763,7 +771,8 @@ async function showWalletMenu(ctx: Context, userId: string): Promise<void> {
       .row()
       .text("← Back", "sniper:back");
     
-    await ctx.editMessageText(
+    await editOrReply(
+      ctx,
       `💼 *WALLET*
 
 No wallet configured yet\\.
@@ -792,7 +801,8 @@ Choose an option:
     .row()
     .text("← Back", "sniper:back");
   
-  await ctx.editMessageText(
+  await editOrReply(
+    ctx,
     `💼 *YOUR WALLET*
 
 *Address:*
