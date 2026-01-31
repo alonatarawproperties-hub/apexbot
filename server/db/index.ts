@@ -3,6 +3,7 @@ import fs from "fs";
 import { config } from "../utils/config";
 import { logger } from "../utils/logger";
 import { getCurrentTimestamp } from "../utils/helpers";
+import { userCache, sniperSettingsCache } from "../utils/cache";
 import type { 
   User, InsertUser, UserSettings, 
   Creator, InsertCreator, 
@@ -185,12 +186,18 @@ function runMigrations(): void {
 
 // User operations
 export function getUser(telegramId: string): User | undefined {
+  // Check cache first
+  const cached = userCache.get(telegramId);
+  if (cached) return cached;
+  
   const row = db.prepare("SELECT * FROM users WHERE telegram_id = ?").get(telegramId) as any;
   if (!row) return undefined;
-  return {
+  const user = {
     ...row,
     settings: JSON.parse(row.settings),
   };
+  userCache.set(telegramId, user);
+  return user;
 }
 
 export function createUser(user: InsertUser): User {
@@ -206,16 +213,19 @@ export function createUser(user: InsertUser): User {
 export function updateUserSettings(telegramId: string, settings: UserSettings): void {
   db.prepare("UPDATE users SET settings = ? WHERE telegram_id = ?")
     .run(JSON.stringify(settings), telegramId);
+  userCache.invalidate(telegramId);
 }
 
 export function incrementUserAlerts(telegramId: string): void {
   db.prepare("UPDATE users SET alerts_today = alerts_today + 1 WHERE telegram_id = ?")
     .run(telegramId);
+  userCache.invalidate(telegramId);
 }
 
 export function resetUserAlerts(telegramId: string): void {
   db.prepare("UPDATE users SET alerts_today = 0, last_alert_reset = ? WHERE telegram_id = ?")
     .run(getCurrentTimestamp(), telegramId);
+  userCache.invalidate(telegramId);
 }
 
 export function getAllUsers(): User[] {
@@ -457,13 +467,19 @@ export function deleteWallet(userId: string): boolean {
 
 // Sniper settings operations
 export function getSniperSettings(userId: string): SniperSettings | undefined {
+  // Check cache first
+  const cached = sniperSettingsCache.get(userId);
+  if (cached) return cached;
+  
   const row = db.prepare("SELECT * FROM sniper_settings WHERE user_id = ?").get(userId) as any;
   if (!row) return undefined;
-  return {
+  const settings = {
     ...row,
     auto_buy_enabled: Boolean(row.auto_buy_enabled),
     tp_brackets: JSON.parse(row.tp_brackets) as TakeProfitBracket[],
   };
+  sniperSettingsCache.set(userId, settings);
+  return settings;
 }
 
 export function createSniperSettings(settings: InsertSniperSettings): SniperSettings {
@@ -504,6 +520,7 @@ export function updateSniperSettings(userId: string, updates: Partial<InsertSnip
     values.push(getCurrentTimestamp());
     values.push(userId);
     db.prepare(`UPDATE sniper_settings SET ${fields.join(", ")} WHERE user_id = ?`).run(...values);
+    sniperSettingsCache.invalidate(userId);
   }
 }
 

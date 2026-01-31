@@ -559,18 +559,19 @@ async function handleCallback(ctx: Context): Promise<void> {
   
   if (prefix !== "apex") return;
   
+  // Answer callback immediately to remove loading spinner - makes bot feel instant
+  await ctx.answerCallbackQuery().catch(() => {});
+  
   const userId = ctx.from!.id.toString();
   const user = db.getUser(userId);
   
   if (!user) {
-    await ctx.answerCallbackQuery("User not found");
     return;
   }
   
   try {
     switch (action) {
       case "noop":
-        await ctx.answerCallbackQuery();
         break;
         
       case "settings":

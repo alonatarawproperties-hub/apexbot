@@ -1,11 +1,18 @@
 import { Bot, GrammyError } from "grammy";
+import { run, sequentialize } from "@grammyjs/runner";
 import { config } from "../utils/config";
 import { logger } from "../utils/logger";
 import { registerCommands } from "./commands";
 import { setBotInstance } from "../services/alertService";
 
 let bot: Bot | null = null;
+let runner: ReturnType<typeof run> | null = null;
 let isRunning = false;
+
+// Get session key for sequentializing updates per user
+function getSessionKey(ctx: any): string | undefined {
+  return ctx.from?.id.toString();
+}
 
 export async function startBot(): Promise<Bot | null> {
   if (!config.telegramBotToken) {
@@ -23,6 +30,9 @@ export async function startBot(): Promise<Bot | null> {
 
     const me = await bot.api.getMe();
     logger.info(`Bot authenticated as @${me.username}`);
+
+    // Use sequentialize to process updates per-user concurrently
+    bot.use(sequentialize(getSessionKey));
 
     registerCommands(bot);
     setBotInstance(bot);
@@ -52,22 +62,10 @@ export async function startBot(): Promise<Bot | null> {
 
     await bot.api.deleteWebhook({ drop_pending_updates: true });
     
-    bot
-      .start({
-        onStart: () => {
-          isRunning = true;
-          logger.info("Telegram bot polling started");
-        },
-      })
-      .catch((err) => {
-        if (err instanceof GrammyError && err.error_code === 409) {
-          logger.warn("Bot conflict: another instance is polling");
-        } else {
-          logger.error("Bot polling error", err);
-        }
-      });
-    
-    logger.info("Telegram bot initialized (polling mode)");
+    // Use Grammy Runner for concurrent processing instead of bot.start()
+    runner = run(bot);
+    isRunning = true;
+    logger.info("Telegram bot initialized with Grammy Runner (concurrent mode)");
   } catch (err: any) {
     logger.error("Failed to start bot", err.message);
     return null;
@@ -85,9 +83,13 @@ export function isBotRunning(): boolean {
 }
 
 export async function stopBot(): Promise<void> {
+  if (runner) {
+    runner.stop();
+    runner = null;
+  }
   if (bot) {
-    await bot.stop();
     isRunning = false;
+    bot = null;
     logger.info("Telegram bot stopped");
   }
 }

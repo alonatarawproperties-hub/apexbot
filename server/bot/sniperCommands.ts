@@ -278,6 +278,13 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
   const userId = ctx.from?.id.toString();
   if (!userId) return;
   
+  // Answer callback immediately to remove loading spinner - makes bot feel instant
+  // Only skip for actions that have their own specific answer
+  const actionsWithCustomAnswer = ["custom_tp_pct", "custom_straight_tp", "custom_moon_mult"];
+  if (!actionsWithCustomAnswer.includes(action)) {
+    await ctx.answerCallbackQuery().catch(() => {});
+  }
+  
   try {
     switch (action) {
       case "settings":
