@@ -1026,7 +1026,11 @@ async function promptImportWallet(ctx: Context, userId: string): Promise<void> {
   await ctx.editMessageText(
     `📥 *IMPORT WALLET*
 
-Paste your private key below\\. We accept Base58, Base64, Hex, or JSON array keys\\.
+Send your private key in one of these formats:
+• Base64 \\(88 characters\\)
+• Base58 \\(varies\\)
+• Hex \\(128 characters\\)
+• JSON array \\[1,2,3\\.\\.\\.\\]
 
 ⚠️ Your key is encrypted and stored securely\\.
 
@@ -1590,7 +1594,11 @@ Your wallet is now ready for sniping\\.`,
     await ctx.reply(
       `❌ *IMPORT FAILED*
 
-That key doesn’t look valid\\. Please paste a Base58, Base64, Hex, or JSON array key and try again\\.`,
+Invalid private key format\\. Use:
+• Base64 \\(88 characters\\)
+• Base58 \\(varies\\)
+• Hex \\(128 characters\\)
+• JSON array`,
       { parse_mode: "MarkdownV2" }
     );
     return false;
