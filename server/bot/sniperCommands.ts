@@ -843,6 +843,7 @@ Positions will appear here when you snipe tokens\\.`,
   }
   
   keyboard
+    .text("🔄 Refresh", "sniper:positions")
     .text("🚨 SELL ALL", "sniper:sell_all")
     .row()
     .text("← Back", "sniper:back");
