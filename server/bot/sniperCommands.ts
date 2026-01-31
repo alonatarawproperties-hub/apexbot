@@ -1084,7 +1084,7 @@ async function promptDeleteWallet(ctx: Context, userId: string): Promise<void> {
     `🗑 *DELETE WALLET*
 
 This will remove the stored wallet from the bot\\.
-You can re-import it later using your private key\\.
+You can reimport it later using your private key\\.
 
 Are you sure?`,
     {
