@@ -49,12 +49,22 @@ export function generateNewWallet(userId: string): { publicKey: string; wallet: 
   const keypair = Keypair.generate();
   const publicKey = keypair.publicKey.toBase58();
   const encryptedPrivateKey = encryptPrivateKey(keypair.secretKey);
-  
-  const wallet = db.createWallet({
-    user_id: userId,
-    public_key: publicKey,
-    encrypted_private_key: encryptedPrivateKey,
-  });
+  const existingWallet = db.getWallet(userId);
+  let wallet: Wallet;
+
+  if (existingWallet) {
+    db.updateWallet(userId, {
+      public_key: publicKey,
+      encrypted_private_key: encryptedPrivateKey,
+    });
+    wallet = db.getWallet(userId)!;
+  } else {
+    wallet = db.createWallet({
+      user_id: userId,
+      public_key: publicKey,
+      encrypted_private_key: encryptedPrivateKey,
+    });
+  }
   
   logger.info(`New wallet generated for user ${userId}: ${publicKey.slice(0, 8)}...`);
   
