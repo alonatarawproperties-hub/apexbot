@@ -101,7 +101,7 @@ export async function snipeToken(
   const priorityFee = settings.priority_fee_lamports / 1_000_000; // Convert lamports to SOL for API
 
   // Minimum buy amount for pump.fun - transactions below this will fail or receive 0 tokens
-  const MIN_BUY_AMOUNT_SOL = 0.005;
+  const MIN_BUY_AMOUNT_SOL = 0.0001;
   if (actualBuyAmount < MIN_BUY_AMOUNT_SOL) {
     return {
       success: false,
