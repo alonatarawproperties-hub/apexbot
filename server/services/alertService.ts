@@ -398,3 +398,37 @@ export async function sendBundleAlert(
     });
   }
 }
+
+export async function sendTPSLNotification(
+  userId: string,
+  tokenSymbol: string | null,
+  triggerType: "stop_loss" | "take_profit",
+  triggerLabel: string,
+  entryAmountSol: number,
+  pnlPercent: number,
+  txSignature?: string
+): Promise<void> {
+  if (!botInstance) return;
+
+  const symbol = tokenSymbol || "Unknown";
+  const isProfit = pnlPercent >= 0;
+  const emoji = triggerType === "stop_loss" ? "🛑" : "🎯";
+  const statusEmoji = isProfit ? "🟢" : "🔴";
+  const pnlSign = isProfit ? "+" : "";
+  const pnlSol = (entryAmountSol * pnlPercent / 100);
+  const pnlSolSign = pnlSol >= 0 ? "+" : "";
+
+  const message =
+    `${emoji} *AUTO ${triggerType === "stop_loss" ? "STOP LOSS" : "TAKE PROFIT"} TRIGGERED*\n\n` +
+    `Token: $${escapeMarkdown(symbol)}\n` +
+    `Trigger: ${escapeMarkdown(triggerLabel)}\n` +
+    `Entry: ${escapeMarkdown(entryAmountSol.toString())} SOL\n` +
+    `P&L: ${statusEmoji} ${escapeMarkdown(pnlSign + pnlPercent.toFixed(1))}% \\(${escapeMarkdown(pnlSolSign + pnlSol.toFixed(4))} SOL\\)\n` +
+    (txSignature ? `TX: \`${txSignature.slice(0, 20)}\\.\\.\\.\`` : "");
+
+  try {
+    await botInstance.api.sendMessage(userId, message, { parse_mode: "MarkdownV2" });
+  } catch (e: any) {
+    logger.error(`Failed to send TP/SL notification to ${userId}: ${e.message}`);
+  }
+}
