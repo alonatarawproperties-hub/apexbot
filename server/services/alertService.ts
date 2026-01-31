@@ -10,6 +10,27 @@ import { snipeToken } from "./sniperService";
 
 let botInstance: Bot | null = null;
 
+// In-memory counters to prevent race conditions when multiple snipes happen simultaneously
+// Key format: `${userId}:${snipeMode}` -> pending count
+const pendingSnipeCounts: Map<string, number> = new Map();
+
+function getPendingCount(userId: string, snipeMode: string): number {
+  return pendingSnipeCounts.get(`${userId}:${snipeMode}`) || 0;
+}
+
+function incrementPending(userId: string, snipeMode: string): void {
+  const key = `${userId}:${snipeMode}`;
+  pendingSnipeCounts.set(key, (pendingSnipeCounts.get(key) || 0) + 1);
+}
+
+function decrementPending(userId: string, snipeMode: string): void {
+  const key = `${userId}:${snipeMode}`;
+  const current = pendingSnipeCounts.get(key) || 0;
+  if (current > 0) {
+    pendingSnipeCounts.set(key, current - 1);
+  }
+}
+
 export function setBotInstance(bot: Bot): void {
   botInstance = bot;
 }
@@ -99,10 +120,14 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
         const wallet = db.getWallet(user.telegram_id);
         if (wallet) {
           // Check max open positions limit (999 = unlimited, skip check)
+          // Include pending snipes to prevent race conditions
           const maxPositions = sniperSettings.max_open_positions ?? 5;
           if (maxPositions < 999) {
-            const openCount = db.getUserOpenPositionCount(user.telegram_id);
-            if (openCount >= maxPositions) {
+            const openCount = db.getOpenPositionsCount(user.telegram_id, "creator");
+            const pendingCount = getPendingCount(user.telegram_id, "creator");
+            const totalCount = openCount + pendingCount;
+            
+            if (totalCount >= maxPositions) {
               botInstance?.api.sendMessage(user.telegram_id,
                 `⏸️ *AUTO-SNIPE PAUSED*\n\n` +
                 `Max positions limit reached (${openCount}/${maxPositions})\n` +
@@ -113,7 +138,13 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
             }
           }
           
+          // Increment pending count BEFORE starting snipe to prevent race conditions
+          incrementPending(user.telegram_id, "creator");
+          
           snipeToken(user.telegram_id, token.address, token.symbol, token.name).then((result) => {
+            // Decrement pending count after snipe completes
+            decrementPending(user.telegram_id, "creator");
+            
             const symbol = token.symbol || "???";
             if (result.success) {
               botInstance?.api.sendMessage(user.telegram_id, 
@@ -130,6 +161,8 @@ export async function sendNewTokenAlert(creator: Creator, token: Token): Promise
               ).catch((e) => logger.error(`Failed to send auto-snipe fail msg: ${e.message}`));
             }
           }).catch((err) => {
+            // Decrement pending count on error too
+            decrementPending(user.telegram_id, "creator");
             logger.error(`Auto-snipe error for ${user.telegram_id}: ${err.message}`);
           });
         }
@@ -280,10 +313,14 @@ export async function sendBundleAlert(
         const buyAmountSOL = sniperSettings.bundle_buy_amount_sol ?? 0.1;
         
         // Check max open positions limit for BUNDLE sniper (999 = unlimited, skip check)
+        // Include pending snipes to prevent race conditions
         const bundleMaxPositions = sniperSettings.bundle_max_open_positions ?? 5;
         if (bundleMaxPositions < 999) {
           const bundleOpenCount = db.getOpenPositionsCount(user.telegram_id, "bundle");
-          if (bundleOpenCount >= bundleMaxPositions) {
+          const pendingCount = getPendingCount(user.telegram_id, "bundle");
+          const totalCount = bundleOpenCount + pendingCount;
+          
+          if (totalCount >= bundleMaxPositions) {
             botInstance?.api.sendMessage(user.telegram_id,
               `⏸️ *BUNDLE SNIPE PAUSED*\n\n` +
               `Max positions limit reached (${bundleOpenCount}/${bundleMaxPositions})\n` +
@@ -294,8 +331,14 @@ export async function sendBundleAlert(
           }
         }
         
+        // Increment pending count BEFORE starting snipe to prevent race conditions
+        incrementPending(user.telegram_id, "bundle");
+        
         // Pass "bundle" mode to use bundle-specific settings
         snipeToken(user.telegram_id, tokenAddress, tokenSymbol, tokenName, buyAmountSOL, "bundle").then((result) => {
+          // Decrement pending count after snipe completes (success or fail)
+          decrementPending(user.telegram_id, "bundle");
+          
           if (result.success) {
             botInstance?.api.sendMessage(user.telegram_id,
               `✅ *BUNDLE AUTO\\-SNIPE SUCCESS*\n\n` +
@@ -311,6 +354,8 @@ export async function sendBundleAlert(
             ).catch((e) => logger.error(`Failed to send bundle snipe fail: ${e.message}`));
           }
         }).catch((err) => {
+          // Decrement pending count on error too
+          decrementPending(user.telegram_id, "bundle");
           logger.error(`Bundle auto-snipe error for ${user.telegram_id}: ${err.message}`);
         });
       }
