@@ -118,7 +118,21 @@ export async function snipeToken(
       const confirmation = await connection.confirmTransaction(txSignature, "confirmed");
       
       if (confirmation.value.err) {
-        return { success: false, error: `Transaction failed: ${JSON.stringify(confirmation.value.err)}` };
+        const errorStr = JSON.stringify(confirmation.value.err);
+        let friendlyError = errorStr;
+        
+        // Parse common PumpFun errors
+        if (errorStr.includes('"Custom":101')) {
+          friendlyError = "Slippage exceeded - try increasing slippage or buy amount";
+        } else if (errorStr.includes('"Custom":100')) {
+          friendlyError = "Insufficient funds in wallet";
+        } else if (errorStr.includes('"Custom":102')) {
+          friendlyError = "Token not available for trading";
+        } else if (errorStr.includes('InsufficientFunds')) {
+          friendlyError = "Insufficient SOL balance";
+        }
+        
+        return { success: false, error: friendlyError };
       }
       
       const tokensBought = await getTokenBalance(connection, keypair.publicKey, tokenMint);
