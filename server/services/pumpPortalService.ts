@@ -168,7 +168,11 @@ async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Pro
     }
     
     if (devBuySOL >= minSOL && devBuySOL <= maxSOL) {
-      logger.info(`[BUNDLE] ${token.symbol} - Dev bought ${devBuySOL.toFixed(2)} SOL, alerting user ${user.telegram_id}`);
+      // Get sniper settings for auto-buy check (separate from user settings)
+      const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
+      const autoSnipeEnabled = sniperSettings.bundle_auto_buy_enabled ?? false;
+      
+      logger.info(`[BUNDLE] ${token.symbol} - Dev bought ${devBuySOL.toFixed(2)} SOL, alerting user ${user.telegram_id} (autoBuy=${autoSnipeEnabled})`);
       
       await sendBundleAlert(
         user,
@@ -177,7 +181,7 @@ async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Pro
         token.symbol,
         token.traderPublicKey,
         devBuySOL,
-        settings.bundle_auto_snipe ?? false
+        autoSnipeEnabled
       );
     }
   }
