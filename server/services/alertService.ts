@@ -215,8 +215,7 @@ export async function sendBundleAlert(
   tokenSymbol: string | null,
   creatorAddress: string,
   devBuySOL: number,
-  autoSnipe: boolean,
-  buyAmountSOL: number
+  autoSnipe: boolean
 ): Promise<void> {
   if (!botInstance) {
     logger.error("Bot instance not set for bundle alerts");
@@ -272,12 +271,15 @@ export async function sendBundleAlert(
     
     logger.alert(`Bundle alert sent to ${user.telegram_id} for ${symbol} (${devBuySOL.toFixed(2)} SOL)`);
     
-    // Auto-snipe if enabled - pass buy amount directly to avoid race conditions
+    // Auto-snipe if enabled - uses main sniper settings
     if (autoSnipe) {
       const wallet = db.getWallet(user.telegram_id);
       if (wallet) {
-        // Check max open positions limit (999 = unlimited, skip check)
+        // Use main sniper settings for bundle auto-snipe
         const sniperSettings = db.getOrCreateSniperSettings(user.telegram_id);
+        const buyAmountSOL = sniperSettings.buy_amount_sol ?? 0.1;
+        
+        // Check max open positions limit (999 = unlimited, skip check)
         const maxPositions = sniperSettings.max_open_positions ?? 5;
         if (maxPositions < 999) {
           const openCount = db.getUserOpenPositionCount(user.telegram_id);

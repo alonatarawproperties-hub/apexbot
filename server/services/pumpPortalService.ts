@@ -177,8 +177,7 @@ async function checkBundleAlerts(token: PumpPortalToken, devBuySOL: number): Pro
         token.symbol,
         token.traderPublicKey,
         devBuySOL,
-        settings.bundle_auto_snipe ?? false,
-        settings.bundle_buy_amount_sol ?? 0.1
+        settings.bundle_auto_snipe ?? false
       );
     }
   }

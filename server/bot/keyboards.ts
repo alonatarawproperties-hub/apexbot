@@ -72,7 +72,6 @@ export function getBundleSettingsKeyboard(settings: UserSettings) {
   const autoSnipeText = settings.bundle_auto_snipe ? "Auto-Snipe: ON" : "Auto-Snipe: OFF";
   const minSOL = settings.bundle_min_sol ?? 2;
   const maxSOL = settings.bundle_max_sol ?? 200;
-  const buyAmount = settings.bundle_buy_amount_sol ?? 0.1;
   
   return {
     inline_keyboard: [
@@ -91,11 +90,6 @@ export function getBundleSettingsKeyboard(settings: UserSettings) {
       ],
       [
         { text: autoSnipeText, callback_data: "apex:bundle_snipe:toggle" },
-      ],
-      [
-        { text: "−", callback_data: "apex:bundle_buy:dec" },
-        { text: `Buy Amount: ${buyAmount} SOL`, callback_data: "apex:noop" },
-        { text: "+", callback_data: "apex:bundle_buy:inc" },
       ],
       [
         { text: "« Back to Settings", callback_data: "apex:settings:show" },

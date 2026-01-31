@@ -645,7 +645,7 @@ async function handleCallback(ctx: Context): Promise<void> {
         
       case "bundle":
         if (value === "show") {
-          const bundleMsg = `🎯 *Bundle Detection Settings*\n\nGet alerts when creators buy significant amounts at token launch\\.\n\n*Current Settings:*\n• Min SOL: ${user.settings.bundle_min_sol ?? 2}\n• Max SOL: ${user.settings.bundle_max_sol ?? 200}\n• Auto\\-Snipe: ${user.settings.bundle_auto_snipe ? "ON" : "OFF"}`;
+          const bundleMsg = `🎯 *Bundle Detection Settings*\n\nGet alerts when creators buy significant amounts at token launch\\.\n\n*Current Settings:*\n• Min SOL: ${user.settings.bundle_min_sol ?? 2}\n• Max SOL: ${user.settings.bundle_max_sol ?? 200}\n• Auto\\-Snipe: ${user.settings.bundle_auto_snipe ? "ON" : "OFF"}\n\n_Auto\\-snipe uses your main Sniper settings_`;
           await ctx.editMessageText(bundleMsg, {
             parse_mode: "MarkdownV2",
             reply_markup: getBundleSettingsKeyboard(user.settings),
