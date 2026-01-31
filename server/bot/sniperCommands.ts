@@ -18,7 +18,7 @@ import type { SniperSettings, Position } from "@shared/schema";
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
 
 // Conversation state for custom input
-type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max";
+type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp";
 interface PendingInput {
   type: InputType;
   tpIndex?: number; // For editing specific TP bracket
@@ -159,6 +159,25 @@ export async function handleCustomInput(ctx: Context, text: string): Promise<boo
         logger.info(`[BUNDLE_SETTINGS] User ${userId} set bundle_max_sol to ${value}`);
         await ctx.reply(`Bundle max SOL set to ${value}`);
       }
+      break;
+    case "moon_mult":
+      if (value < 1.1 || value > 1000) {
+        await ctx.reply("Moon bag multiplier must be between 1.1x and 1000x.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { moon_bag_multiplier: value });
+      await ctx.reply(`Moon bag TP set to ${value}x`);
+      break;
+    case "straight_tp":
+      if (value < 1.1 || value > 1000) {
+        await ctx.reply("TP multiplier must be between 1.1x and 1000x.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { 
+        tp_brackets: [{ percentage: 100, multiplier: value }],
+        moon_bag_percent: 0
+      });
+      await ctx.reply(`Straight TP set: 100% @ ${value}x`);
       break;
   }
   
@@ -328,6 +347,31 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
         pendingInputs.set(userId, { type: "tp_pct", tpIndex: parseInt(value) });
         await ctx.answerCallbackQuery();
         await ctx.reply("Enter your custom TP percentage (1-100):");
+        break;
+      case "straight_tp_menu":
+        await showStraightTPMenu(ctx, userId);
+        break;
+      case "set_straight_tp":
+        await setStraightTP(ctx, userId, parseFloat(value));
+        break;
+      case "custom_straight_tp":
+        pendingInputs.set(userId, { type: "straight_tp" });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter your straight TP multiplier (e.g., 2 for 100% sell at 2x):");
+        break;
+      case "moon_bag_menu":
+        await showMoonBagMenu(ctx, userId);
+        break;
+      case "moon_mult_menu":
+        await showMoonMultMenu(ctx, userId);
+        break;
+      case "set_moon_mult":
+        await setMoonBagMult(ctx, userId, parseFloat(value));
+        break;
+      case "custom_moon_mult":
+        pendingInputs.set(userId, { type: "moon_mult" });
+        await ctx.answerCallbackQuery();
+        await ctx.reply("Enter moon bag TP multiplier (e.g., 50 for sell at 50x, 0 for hold forever):");
         break;
       default:
         if (action.startsWith("set_")) {
@@ -778,10 +822,24 @@ async function showTPMenu(ctx: Context, userId: string): Promise<void> {
   const brackets = settings.tp_brackets || [];
   
   let tpText = "";
-  brackets.forEach((b, i) => {
-    tpText += `TP${i + 1}: ${formatMarkdownValue(b.percentage)}% @ ${formatMarkdownValue(b.multiplier)}x\n`;
-  });
-  tpText += `Moon Bag: ${formatMarkdownValue(settings.moon_bag_percent)}%`;
+  const isStraightTP = brackets.length === 1 && brackets[0].percentage === 100;
+  
+  if (isStraightTP) {
+    tpText = `Mode: *Straight TP* \\(100% @ ${formatMarkdownValue(brackets[0].multiplier)}x\\)\n`;
+  } else {
+    brackets.forEach((b, i) => {
+      tpText += `TP${i + 1}: ${formatMarkdownValue(b.percentage)}% @ ${formatMarkdownValue(b.multiplier)}x\n`;
+    });
+  }
+  
+  if (settings.moon_bag_percent > 0) {
+    const moonMultText = settings.moon_bag_multiplier > 0 
+      ? ` @ ${formatMarkdownValue(settings.moon_bag_multiplier)}x` 
+      : " \\(hold forever\\)";
+    tpText += `Moon Bag: ${formatMarkdownValue(settings.moon_bag_percent)}%${moonMultText}`;
+  } else {
+    tpText += `Moon Bag: Off`;
+  }
   
   await ctx.editMessageText(
     `📈 *TAKE PROFIT BRACKETS*
@@ -796,13 +854,14 @@ Select preset or edit individual brackets:`,
         .text("Balanced", "sniper:set_tp:balanced")
         .text("Aggressive", "sniper:set_tp:aggressive")
         .row()
+        .text("Straight TP", "sniper:straight_tp_menu")
+        .row()
         .text("Edit TP1", "sniper:edit_tp_bracket:0")
         .text("Edit TP2", "sniper:edit_tp_bracket:1")
         .text("Edit TP3", "sniper:edit_tp_bracket:2")
         .row()
-        .text("Moon Bag 10%", "sniper:set_moon:10")
-        .text("Moon Bag 20%", "sniper:set_moon:20")
-        .text("Custom", "sniper:custom:moon")
+        .text("Moon Bag %", "sniper:moon_bag_menu")
+        .text("Moon Bag TP", "sniper:moon_mult_menu")
         .row()
         .text("← Back", "sniper:settings"),
     }
@@ -816,6 +875,7 @@ async function promptCustomInput(ctx: Context, userId: string, inputType: InputT
     jito: "Enter your custom Jito tip in SOL (e.g., 0.007):",
     sl: "Enter your custom stop loss percentage (e.g., 35 for -35%):",
     moon: "Enter your custom moon bag percentage (e.g., 15):",
+    moon_mult: "Enter moon bag TP multiplier (e.g., 50 for 50x):",
     buy: "Enter your custom buy amount in SOL (e.g., 0.25):",
     slip: "Enter your custom slippage percentage (e.g., 25):",
     priority: "Enter priority fee in lamports (e.g., 50000):",
@@ -823,6 +883,7 @@ async function promptCustomInput(ctx: Context, userId: string, inputType: InputT
     tp_mult: "Enter TP multiplier target (e.g., 3 for 3x):",
     bundle_min: "Enter your custom Min SOL value (e.g., 15):",
     bundle_max: "Enter your custom Max SOL value (e.g., 100):",
+    straight_tp: "Enter your straight TP multiplier (e.g., 2 for 100% sell at 2x):",
   };
   
   await ctx.answerCallbackQuery();
@@ -900,6 +961,117 @@ async function setTPBracketMult(ctx: Context, userId: string, value: string): Pr
     await ctx.answerCallbackQuery({ text: `TP${index + 1} target: ${mult}x` });
     await showTPBracketEdit(ctx, userId, index);
   }
+}
+
+async function showStraightTPMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const brackets = settings.tp_brackets || [];
+  const isStraightTP = brackets.length === 1 && brackets[0].percentage === 100;
+  
+  const currentText = isStraightTP 
+    ? `Current: 100% @ ${brackets[0].multiplier}x` 
+    : "Currently using bracket TPs";
+  
+  await ctx.editMessageText(
+    `📈 *STRAIGHT TP*
+
+${escapeMarkdown(currentText)}
+
+Sells 100% of your position at a single target\\.
+Choose your multiplier:`,
+    {
+      parse_mode: "MarkdownV2",
+      reply_markup: new InlineKeyboard()
+        .text("2x", "sniper:set_straight_tp:2")
+        .text("3x", "sniper:set_straight_tp:3")
+        .text("5x", "sniper:set_straight_tp:5")
+        .text("10x", "sniper:set_straight_tp:10")
+        .row()
+        .text("20x", "sniper:set_straight_tp:20")
+        .text("50x", "sniper:set_straight_tp:50")
+        .text("100x", "sniper:set_straight_tp:100")
+        .row()
+        .text("Custom X", "sniper:custom_straight_tp")
+        .row()
+        .text("← Back to TP", "sniper:edit_tp"),
+    }
+  );
+}
+
+async function setStraightTP(ctx: Context, userId: string, mult: number): Promise<void> {
+  db.updateSniperSettings(userId, { 
+    tp_brackets: [{ percentage: 100, multiplier: mult }],
+    moon_bag_percent: 0
+  });
+  await ctx.answerCallbackQuery({ text: `Straight TP: 100% @ ${mult}x` });
+  await showTPMenu(ctx, userId);
+}
+
+async function showMoonBagMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  
+  await ctx.editMessageText(
+    `🌙 *MOON BAG PERCENTAGE*
+
+Current: ${formatMarkdownValue(settings.moon_bag_percent)}%
+
+Percentage of position to hold long\\-term\\.
+Set to 0 to disable moon bag\\.`,
+    {
+      parse_mode: "MarkdownV2",
+      reply_markup: new InlineKeyboard()
+        .text("Off", "sniper:set_moon:0")
+        .text("5%", "sniper:set_moon:5")
+        .text("10%", "sniper:set_moon:10")
+        .text("15%", "sniper:set_moon:15")
+        .row()
+        .text("20%", "sniper:set_moon:20")
+        .text("25%", "sniper:set_moon:25")
+        .text("50%", "sniper:set_moon:50")
+        .row()
+        .text("Custom %", "sniper:custom:moon")
+        .row()
+        .text("← Back to TP", "sniper:edit_tp"),
+    }
+  );
+}
+
+async function showMoonMultMenu(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const moonMultText = settings.moon_bag_multiplier > 0 
+    ? `${settings.moon_bag_multiplier}x` 
+    : "Hold Forever";
+  
+  await ctx.editMessageText(
+    `🌙 *MOON BAG TP TARGET*
+
+Current: ${escapeMarkdown(moonMultText)}
+
+At what price to sell your moon bag\\.
+Set to 0 or "Forever" to hold indefinitely\\.`,
+    {
+      parse_mode: "MarkdownV2",
+      reply_markup: new InlineKeyboard()
+        .text("Forever", "sniper:set_moon_mult:0")
+        .text("10x", "sniper:set_moon_mult:10")
+        .text("20x", "sniper:set_moon_mult:20")
+        .row()
+        .text("50x", "sniper:set_moon_mult:50")
+        .text("100x", "sniper:set_moon_mult:100")
+        .text("500x", "sniper:set_moon_mult:500")
+        .row()
+        .text("Custom X", "sniper:custom_moon_mult")
+        .row()
+        .text("← Back to TP", "sniper:edit_tp"),
+    }
+  );
+}
+
+async function setMoonBagMult(ctx: Context, userId: string, mult: number): Promise<void> {
+  db.updateSniperSettings(userId, { moon_bag_multiplier: mult });
+  const text = mult > 0 ? `Moon bag TP: ${mult}x` : "Moon bag: hold forever";
+  await ctx.answerCallbackQuery({ text });
+  await showTPMenu(ctx, userId);
 }
 
 async function handleSettingUpdate(ctx: Context, userId: string, action: string, value: string): Promise<void> {

@@ -181,6 +181,7 @@ export const sniperSettingsSchema = z.object({
     { percentage: 20, multiplier: 10 },
   ]),
   moon_bag_percent: z.number().default(0),
+  moon_bag_multiplier: z.number().default(0),
   stop_loss_percent: z.number().default(50),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
