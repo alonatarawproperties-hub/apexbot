@@ -18,7 +18,7 @@ import type { SniperSettings, Position } from "@shared/schema";
 const formatMarkdownValue = (value: string | number): string => escapeMarkdown(String(value));
 
 // Conversation state for custom input
-type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp" | "b_jito" | "b_sl" | "b_tp_pct" | "b_tp_mult" | "b_moon" | "b_moon_mult" | "b_buy" | "b_slip" | "b_straight_tp" | "b_max_pos";
+type InputType = "jito" | "sl" | "tp_pct" | "tp_mult" | "moon" | "moon_mult" | "buy" | "slip" | "priority" | "bundle_min" | "bundle_max" | "straight_tp" | "b_jito" | "b_sl" | "b_tp_pct" | "b_tp_mult" | "b_moon" | "b_moon_mult" | "b_buy" | "b_slip" | "b_straight_tp" | "b_max_pos" | "b_priority";
 interface PendingInput {
   type: InputType;
   tpIndex?: number; // For editing specific TP bracket
@@ -187,6 +187,14 @@ export async function handleCustomInput(ctx: Context, text: string): Promise<boo
       }
       db.updateSniperSettings(userId, { bundle_jito_tip_sol: value });
       await ctx.reply(`Bundle Jito tip set to ${value} SOL`);
+      break;
+    case "b_priority":
+      if (value < 0 || value > 0.1) {
+        await ctx.reply("Priority fee must be between 0 and 0.1 SOL.");
+        return true;
+      }
+      db.updateSniperSettings(userId, { bundle_priority_fee_sol: value });
+      await ctx.reply(`Bundle priority fee set to ${value} SOL`);
       break;
     case "b_sl":
       if (value < 0 || value > 100) {
@@ -486,6 +494,9 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
       case "b_edit_jito":
         await promptBundleEditJito(ctx, userId);
         break;
+      case "b_edit_priority":
+        await promptBundleEditPriority(ctx, userId);
+        break;
       case "b_edit_sl":
         await promptBundleEditStopLoss(ctx, userId);
         break;
@@ -569,6 +580,11 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
         await ctx.answerCallbackQuery({ text: `Bundle Jito: ${value} SOL` });
         await showBundleSniperMenu(ctx, userId);
         break;
+      case "b_set_priority":
+        db.updateSniperSettings(userId, { bundle_priority_fee_sol: parseFloat(value) });
+        await ctx.answerCallbackQuery({ text: `Priority Fee: ${value} SOL` });
+        await showBundleSniperMenu(ctx, userId);
+        break;
       case "b_set_sl":
         db.updateSniperSettings(userId, { bundle_stop_loss_percent: parseFloat(value) });
         await ctx.answerCallbackQuery({ text: value === "0" ? "Bundle SL disabled" : `Bundle SL: -${value}%` });
@@ -605,6 +621,7 @@ export async function handleSniperCallback(ctx: Context, action: string, value: 
           b_buy: "Enter bundle buy amount in SOL:",
           b_slip: "Enter bundle slippage percentage:",
           b_jito: "Enter bundle Jito tip in SOL:",
+          b_priority: "Enter priority fee in SOL (e.g. 0.0001):",
           b_sl: "Enter bundle stop loss percentage (0 to disable):",
           b_max_pos: "Enter max positions (999 for unlimited):",
         };
@@ -684,6 +701,8 @@ async function showBundleSniperMenu(ctx: Context, userId: string): Promise<void>
     .text(`Slip: ${settings.bundle_slippage_percent ?? 20}%`, "sniper:b_edit_slip")
     .row()
     .text(`Jito: ${settings.bundle_jito_tip_sol ?? 0.005} SOL`, "sniper:b_edit_jito")
+    .text(`Fee: ${settings.bundle_priority_fee_sol ?? 0.0001} SOL`, "sniper:b_edit_priority")
+    .row()
     .text(`SL: -${settings.bundle_stop_loss_percent ?? 50}%`, "sniper:b_edit_sl")
     .row()
     .text("📈 Edit Take Profit", "sniper:b_edit_tp")
@@ -711,6 +730,7 @@ _For auto\\-sniping dev bundles_
 *Buy Amount:* ${formatMarkdownValue(settings.bundle_buy_amount_sol ?? 0.1)} SOL
 *Slippage:* ${formatMarkdownValue(settings.bundle_slippage_percent ?? 20)}%
 *Jito Tip:* ${formatMarkdownValue(settings.bundle_jito_tip_sol ?? 0.005)} SOL
+*Priority Fee:* ${formatMarkdownValue(settings.bundle_priority_fee_sol ?? 0.0001)} SOL
 *Stop Loss:* \\-${formatMarkdownValue(settings.bundle_stop_loss_percent ?? 50)}%
 
 📈 *Take Profit:*${tpText || "\n_Not configured_"}
@@ -1563,13 +1583,34 @@ async function promptBundleEditJito(ctx: Context, userId: string): Promise<void>
     .text("Custom", "sniper:b_custom:b_jito")
     .row()
     .text("← Back", "sniper:bundle_settings");
-  
+
   await ctx.editMessageText(
     `*BUNDLE JITO TIP*
 
 Current: ${formatMarkdownValue(settings.bundle_jito_tip_sol ?? 0.005)} SOL
 
 Higher tip \\= faster execution`,
+    { parse_mode: "MarkdownV2", reply_markup: keyboard }
+  );
+}
+
+async function promptBundleEditPriority(ctx: Context, userId: string): Promise<void> {
+  const settings = db.getOrCreateSniperSettings(userId);
+  const keyboard = new InlineKeyboard()
+    .text("0.0001", "sniper:b_set_priority:0.0001")
+    .text("0.001", "sniper:b_set_priority:0.001")
+    .text("0.01", "sniper:b_set_priority:0.01")
+    .row()
+    .text("Custom", "sniper:b_custom:b_priority")
+    .row()
+    .text("← Back", "sniper:bundle_settings");
+
+  await ctx.editMessageText(
+    `*PRIORITY FEE*
+
+Current: ${formatMarkdownValue(settings.bundle_priority_fee_sol ?? 0.0001)} SOL
+
+Higher fee \\= faster transaction during congestion`,
     { parse_mode: "MarkdownV2", reply_markup: keyboard }
   );
 }

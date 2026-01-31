@@ -190,6 +190,7 @@ export const sniperSettingsSchema = z.object({
   bundle_buy_amount_sol: z.number().default(0.1),
   bundle_slippage_percent: z.number().default(20),
   bundle_jito_tip_sol: z.number().default(0.005),
+  bundle_priority_fee_sol: z.number().default(0.0001),
   bundle_tp_brackets: z.array(takeProfitBracketSchema).default([
     { percentage: 50, multiplier: 2 },
     { percentage: 30, multiplier: 5 },
