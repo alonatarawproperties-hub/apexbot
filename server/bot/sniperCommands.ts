@@ -318,35 +318,22 @@ async function handleSniper(ctx: Context): Promise<void> {
   const keyboard = getSniperMainKeyboard();
   
   const walletStatus = wallet 
-    ? `💼 Wallet: \`${formatMarkdownValue(formatAddress(wallet.public_key, 6))}\` \\- ${formatMarkdownValue(balance.toFixed(4))} SOL`
-    : "💼 Wallet: Not configured";
+    ? `\`${formatMarkdownValue(formatAddress(wallet.public_key, 6))}\` \\- ${formatMarkdownValue(balance.toFixed(4))} SOL`
+    : "Not configured";
   
-  const autoBuyStatus = settings.auto_buy_enabled ? "🟢 ON" : "🔴 OFF";
+  const creatorStatus = settings.auto_buy_enabled ? "ON" : "OFF";
+  const bundleStatus = settings.bundle_auto_buy_enabled ? "ON" : "OFF";
   
-  const message = `🎯 *SNIPER BOT*
+  const message = `*SNIPER BOT*
 
-${walletStatus}
-🎯 Auto\\-Buy: ${autoBuyStatus}
+*Wallet:* ${walletStatus}
 
-⚙️ *Settings:*
-├ Buy: ${formatMarkdownValue(settings.buy_amount_sol)} SOL
-├ Slip: ${formatMarkdownValue(settings.slippage_percent)}%
-├ Jito: ${formatMarkdownValue(settings.jito_tip_sol)} SOL
-└ SL: ${formatMarkdownValue(`-${settings.stop_loss_percent}`)}%
+*Creator Sniper:* ${creatorStatus}
+*Bundle Sniper:* ${bundleStatus}
 
-📈 *Take Profit:*`;
+Select a sniper to configure:`;
 
-  let tpMessage = "";
-  const brackets = settings.tp_brackets || [];
-  brackets.forEach((b, i) => {
-    const prefix = i === brackets.length - 1 && settings.moon_bag_percent === 0 ? "└" : "├";
-    tpMessage += `\n${prefix} TP${i + 1}: ${formatMarkdownValue(b.percentage)}% @ ${formatMarkdownValue(b.multiplier)}x`;
-  });
-  if (settings.moon_bag_percent > 0) {
-    tpMessage += `\n└ Moon: ${formatMarkdownValue(settings.moon_bag_percent)}% keep`;
-  }
-  
-  await ctx.reply(message + tpMessage, {
+  await ctx.reply(message, {
     parse_mode: "MarkdownV2",
     reply_markup: keyboard,
   });
@@ -1213,6 +1200,15 @@ async function promptCustomInput(ctx: Context, userId: string, inputType: InputT
     bundle_min: "Enter your custom Min SOL value (e.g., 15):",
     bundle_max: "Enter your custom Max SOL value (e.g., 100):",
     straight_tp: "Enter your straight TP multiplier (e.g., 2 for 100% sell at 2x):",
+    b_jito: "Enter bundle Jito tip in SOL (e.g., 0.007):",
+    b_sl: "Enter bundle stop loss percentage (e.g., 35 for -35%):",
+    b_tp_pct: "Enter bundle TP percentage to sell (1-100):",
+    b_tp_mult: "Enter bundle TP multiplier target (e.g., 3 for 3x):",
+    b_moon: "Enter bundle moon bag percentage (e.g., 15):",
+    b_moon_mult: "Enter bundle moon bag TP multiplier (e.g., 50 for 50x):",
+    b_buy: "Enter bundle buy amount in SOL (e.g., 0.25):",
+    b_slip: "Enter bundle slippage percentage (e.g., 25):",
+    b_straight_tp: "Enter bundle straight TP multiplier (e.g., 2 for 100% sell at 2x):",
   };
   
   await ctx.answerCallbackQuery();
