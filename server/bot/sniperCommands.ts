@@ -1032,7 +1032,7 @@ Send your private key in one of these formats:
 • Hex \\(128 characters\\)
 • JSON array \\[1,2,3\\.\\.\\.\\]
 
-⚠️ Your key will be encrypted and stored securely\\.
+⚠️ Your key is encrypted and stored securely\\.
 
 Reply with your private key:`,
     {
