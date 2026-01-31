@@ -118,7 +118,15 @@ async function handleNewToken(token: PumpPortalToken): Promise<void> {
       token.symbol
     );
 
+    // Debug: Log creator stats for tokens from creators with any success
+    if (result.creator.bonded_count > 0 || result.creator.hits_100k_count > 0) {
+      logger.info(`[CREATOR_CHECK] ${token.symbol} by ${token.traderPublicKey.slice(0, 8)}: ` +
+        `bonded=${result.creator.bonded_count}, 100k=${result.creator.hits_100k_count}, ` +
+        `launches=${result.creator.total_launches}, is_qualified=${result.creator.is_qualified}`);
+    }
+
     if (result.isQualified || result.watcherUserIds.length > 0) {
+      logger.info(`[CREATOR_ALERT] Sending alert for ${token.symbol} - qualified=${result.isQualified}, watchers=${result.watcherUserIds.length}`);
       const { sendNewTokenAlert } = await import("./alertService");
       await sendNewTokenAlert(result.creator, result.token);
     }

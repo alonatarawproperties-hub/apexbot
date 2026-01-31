@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import * as db from "./db";
 import { initDatabase } from "./db";
 import { logger } from "./utils/logger";
 
@@ -100,7 +101,10 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
-      logger.info("🔺 Apex is online and tracking");
+      const qualifiedCreators = db.getQualifiedCreators();
+      const totalCreators = db.getAllCreators().length;
+      logger.info(`🔺 Apex is online and tracking`);
+      logger.info(`📊 Loaded: ${totalCreators} creators (${qualifiedCreators.length} qualified)`);
     },
   );
 })();
