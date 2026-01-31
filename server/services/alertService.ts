@@ -314,11 +314,32 @@ export async function sendBundleAlert(
           // Send paused notification once
           if (!pausedNotified.has(user.telegram_id)) {
             pausedNotified.add(user.telegram_id);
+
+            // Build positions list with sell buttons
+            const positions = [...db.getUserPositions(user.telegram_id, "open"), ...db.getUserPositions(user.telegram_id, "partial")];
+            let posText = "";
+            const inlineKeyboard: any[][] = [];
+
+            for (const pos of positions.slice(0, 5)) {
+              const pnlEmoji = pos.unrealized_pnl_percent >= 0 ? "🟢" : "🔴";
+              const pnlSign = pos.unrealized_pnl_percent >= 0 ? "+" : "";
+              const label = pos.token_symbol || pos.token_address.slice(0, 8);
+              posText += `*${escapeMarkdown(label)}*\nEntry: ${escapeMarkdown(String(pos.entry_amount_sol))} SOL\nP&L: ${pnlEmoji} ${escapeMarkdown(pnlSign + pos.unrealized_pnl_percent.toFixed(1))}%\n\n`;
+              inlineKeyboard.push([
+                { text: `Sell 50% #${pos.id}`, callback_data: `sniper:sell:${pos.id}:50` },
+                { text: `Sell 100% #${pos.id}`, callback_data: `sniper:sell:${pos.id}:100` },
+              ]);
+            }
+
+            inlineKeyboard.push([{ text: "🔄 Refresh", callback_data: "sniper:positions" }, { text: "🚨 SELL ALL", callback_data: "sniper:sell_all" }]);
+
             botInstance?.api.sendMessage(user.telegram_id,
               `⏸️ *ALERTS PAUSED*\n\n` +
               `Max positions reached \\(${bundleOpenCount}/${bundleMaxPositions}\\)\\.\n` +
-              `Alerts will automatically resume when a position closes via TP/SL or manual sell\\.`,
-              { parse_mode: "MarkdownV2" }
+              `Alerts resume automatically when a position closes\\.\n\n` +
+              `📊 *OPEN POSITIONS* \\(${positions.length}\\)\n\n` +
+              posText,
+              { parse_mode: "MarkdownV2", reply_markup: { inline_keyboard: inlineKeyboard } }
             ).catch((e) => logger.error(`Failed to send paused msg: ${e.message}`));
           }
           return;
