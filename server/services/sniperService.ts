@@ -302,19 +302,28 @@ export async function snipeToken(
     }
     
     // Wait for token account to update and verify tokens were received
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    let tokensBought = await getTokenBalance(connection, keypair.publicKey, tokenMint);
-    
-    // If no tokens found, wait longer and retry (transaction might still be processing)
-    if (tokensBought === 0) {
-      logger.warn(`No tokens found after first check, waiting and retrying...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
+    // Use multiple retries with increasing delays since RPC indexing can lag
+    let tokensBought = 0;
+    const retryDelays = [2000, 3000, 5000, 8000];
+    for (let i = 0; i < retryDelays.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, retryDelays[i]));
       tokensBought = await getTokenBalance(connection, keypair.publicKey, tokenMint);
+      if (tokensBought > 0) {
+        logger.info(`[TX] Token balance found on attempt ${i + 1}: ${tokensBought}`);
+        break;
+      }
+      logger.warn(`[TX] No tokens found on attempt ${i + 1}/${retryDelays.length}, retrying...`);
     }
-    
-    // CRITICAL: Only create position if we actually received tokens
-    // This prevents fake positions when transactions fail/drop
+
+    // If confirmed on-chain but token balance query still returns 0,
+    // trust the confirmation and estimate tokens from the buy amount
+    if (tokensBought === 0 && confirmed) {
+      logger.warn(`[TX] Confirmed tx but getTokenBalance returned 0 - RPC indexing lag. Creating position from tx. tx=${txSignature}`);
+      // Estimate: we'll update the real balance on the next price check cycle
+      // For now use a placeholder so the position gets created
+      tokensBought = -1; // sentinel value handled below
+    }
+
     if (tokensBought === 0) {
       logger.error(`[TX] No tokens received after tx=${txSignature} - check on Solscan: https://solscan.io/tx/${txSignature}`);
       return {
@@ -322,6 +331,28 @@ export async function snipeToken(
         error: `Transaction sent but no tokens received. Check: https://solscan.io/tx/${txSignature}`,
         txSignature
       };
+    }
+
+    // If we used the sentinel, try to parse token amount from the transaction
+    if (tokensBought === -1) {
+      try {
+        const txDetails = await connection.getParsedTransaction(txSignature!, { maxSupportedTransactionVersion: 0 });
+        const postBalances = txDetails?.meta?.postTokenBalances;
+        if (postBalances) {
+          const ourBalance = postBalances.find(b => b.owner === keypair.publicKey.toBase58());
+          if (ourBalance) {
+            tokensBought = ourBalance.uiTokenAmount.uiAmount || 0;
+            logger.info(`[TX] Parsed token amount from tx: ${tokensBought}`);
+          }
+        }
+      } catch (e: any) {
+        logger.warn(`[TX] Failed to parse tx details: ${e.message}`);
+      }
+      // Last resort: use a rough estimate so position is still tracked
+      if (tokensBought <= 0) {
+        tokensBought = 1; // placeholder - will be corrected on next balance refresh
+        logger.warn(`[TX] Using placeholder token amount, will update on next refresh`);
+      }
     }
     
     const entryPrice = actualBuyAmount / tokensBought;
