@@ -102,6 +102,10 @@ export function importWallet(userId: string, privateKeyInput: string): { publicK
       } else {
         throw new Error("Invalid private key format");
       }
+    } else if (/^[0-9a-fA-F]+$/.test(trimmedInput) && trimmedInput.length % 2 === 0) {
+      keypair = keypairFromBytes(decodeHex(trimmedInput));
+    } else if (/^[A-Za-z0-9+/=]+$/.test(trimmedInput) && trimmedInput.length % 4 === 0) {
+      keypair = keypairFromBytes(Buffer.from(trimmedInput, "base64"));
     } else {
       let decodedBytes: Uint8Array | null = null;
 
