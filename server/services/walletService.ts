@@ -1,4 +1,5 @@
 import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
 import crypto from "crypto";
 import * as db from "../db";
 import { logger } from "../utils/logger";
@@ -91,7 +92,15 @@ export function importWallet(userId: string, privateKeyInput: string): { publicK
         throw new Error("Invalid private key format");
       }
     } else {
-      throw new Error("Invalid private key format. Use base64, hex, or JSON array format.");
+      try {
+        const decoded = bs58.decode(privateKeyInput);
+        if (decoded.length !== 64) {
+          throw new Error("Invalid private key format");
+        }
+        keypair = Keypair.fromSecretKey(decoded);
+      } catch {
+        throw new Error("Invalid private key format. Use base64, base58, hex, or JSON array format.");
+      }
     }
     
     const publicKey = keypair.publicKey.toBase58();
