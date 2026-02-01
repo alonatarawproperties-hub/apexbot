@@ -1,4 +1,5 @@
 import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
 import crypto from "crypto";
 import * as db from "../db";
 import { logger } from "../utils/logger";
@@ -71,27 +72,95 @@ export function generateNewWallet(userId: string): { publicKey: string; wallet: 
   return { publicKey, wallet };
 }
 
+function keypairFromBytes(bytes: Uint8Array): Keypair {
+  if (bytes.length === 64) {
+    return Keypair.fromSecretKey(bytes);
+  }
+  if (bytes.length === 32) {
+    return Keypair.fromSeed(bytes);
+  }
+  throw new Error("Invalid private key length");
+}
+
+function decodeHex(input: string): Uint8Array {
+  const bytes = new Uint8Array(input.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(input.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function decodeBase58WithFallback(input: string): Uint8Array {
+  try {
+    return bs58.decode(input);
+  } catch {
+    const invalidChars = input.match(/[^1-9A-HJ-NP-Za-km-z]/g) ?? [];
+    const hasOnlyAmbiguous = invalidChars.every((char) => ["0", "O", "I", "l"].includes(char));
+    if (!hasOnlyAmbiguous) {
+      throw new Error("Invalid private key format. Use base64, base58, hex, or JSON array format.");
+    }
+
+    const candidates = new Set<string>();
+    if (input.includes("l")) {
+      candidates.add(input.replace(/l/g, "1"));
+      candidates.add(input.replace(/l/g, "L"));
+    }
+    if (input.includes("I")) {
+      candidates.add(input.replace(/I/g, "1"));
+    }
+    if (input.includes("0")) {
+      candidates.add(input.replace(/0/g, "o"));
+    }
+    if (input.includes("O")) {
+      candidates.add(input.replace(/O/g, "o"));
+    }
+
+    for (const candidate of candidates) {
+      try {
+        return bs58.decode(candidate);
+      } catch {
+        continue;
+      }
+    }
+
+    throw new Error("Invalid private key format. Use base64, base58, hex, or JSON array format.");
+  }
+}
+
 export function importWallet(userId: string, privateKeyInput: string): { publicKey: string; wallet: Wallet } | null {
   try {
     let keypair: Keypair;
+    const trimmedInput = privateKeyInput.trim();
     
-    if (privateKeyInput.length === 88) {
-      keypair = Keypair.fromSecretKey(Buffer.from(privateKeyInput, "base64"));
-    } else if (privateKeyInput.length === 128) {
-      const bytes = new Uint8Array(64);
-      for (let i = 0; i < 64; i++) {
-        bytes[i] = parseInt(privateKeyInput.slice(i * 2, i * 2 + 2), 16);
-      }
-      keypair = Keypair.fromSecretKey(bytes);
-    } else if (privateKeyInput.startsWith("[")) {
-      const decoded = JSON.parse(privateKeyInput);
+    if (trimmedInput.startsWith("[")) {
+      const decoded = JSON.parse(trimmedInput);
       if (Array.isArray(decoded)) {
-        keypair = Keypair.fromSecretKey(new Uint8Array(decoded));
+        keypair = keypairFromBytes(new Uint8Array(decoded));
       } else {
         throw new Error("Invalid private key format");
       }
     } else {
-      throw new Error("Invalid private key format. Use base64, hex, or JSON array format.");
+      let decodedBytes: Uint8Array | null = null;
+
+      if (/^[0-9a-fA-F]+$/.test(trimmedInput) && trimmedInput.length % 2 === 0) {
+        const hexBytes = decodeHex(trimmedInput);
+        if (hexBytes.length === 32 || hexBytes.length === 64) {
+          decodedBytes = hexBytes;
+        }
+      }
+
+      if (!decodedBytes && /^[A-Za-z0-9+/=]+$/.test(trimmedInput) && trimmedInput.length % 4 === 0) {
+        const base64Bytes = Buffer.from(trimmedInput, "base64");
+        if (base64Bytes.length === 32 || base64Bytes.length === 64) {
+          decodedBytes = base64Bytes;
+        }
+      }
+
+      if (!decodedBytes) {
+        decodedBytes = decodeBase58WithFallback(trimmedInput);
+      }
+
+      keypair = keypairFromBytes(decodedBytes);
     }
     
     const publicKey = keypair.publicKey.toBase58();
