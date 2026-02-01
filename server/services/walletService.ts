@@ -90,6 +90,43 @@ function decodeHex(input: string): Uint8Array {
   return bytes;
 }
 
+function decodeBase58WithFallback(input: string): Uint8Array {
+  try {
+    return bs58.decode(input);
+  } catch {
+    const invalidChars = input.match(/[^1-9A-HJ-NP-Za-km-z]/g) ?? [];
+    const hasOnlyAmbiguous = invalidChars.every((char) => ["0", "O", "I", "l"].includes(char));
+    if (!hasOnlyAmbiguous) {
+      throw new Error("Invalid private key format. Use base64, base58, hex, or JSON array format.");
+    }
+
+    const candidates = new Set<string>();
+    if (input.includes("l")) {
+      candidates.add(input.replace(/l/g, "1"));
+      candidates.add(input.replace(/l/g, "L"));
+    }
+    if (input.includes("I")) {
+      candidates.add(input.replace(/I/g, "1"));
+    }
+    if (input.includes("0")) {
+      candidates.add(input.replace(/0/g, "o"));
+    }
+    if (input.includes("O")) {
+      candidates.add(input.replace(/O/g, "o"));
+    }
+
+    for (const candidate of candidates) {
+      try {
+        return bs58.decode(candidate);
+      } catch {
+        continue;
+      }
+    }
+
+    throw new Error("Invalid private key format. Use base64, base58, hex, or JSON array format.");
+  }
+}
+
 export function importWallet(userId: string, privateKeyInput: string): { publicKey: string; wallet: Wallet } | null {
   try {
     let keypair: Keypair;
@@ -124,11 +161,7 @@ export function importWallet(userId: string, privateKeyInput: string): { publicK
       }
 
       if (!decodedBytes) {
-        try {
-          decodedBytes = bs58.decode(trimmedInput);
-        } catch {
-          throw new Error("Invalid private key format. Use base64, base58, hex, or JSON array format.");
-        }
+        decodedBytes = decodeBase58WithFallback(trimmedInput);
       }
 
       keypair = keypairFromBytes(decodedBytes);
