@@ -1023,14 +1023,11 @@ Send SOL to this address to start sniping\\.`,
 
 async function promptImportWallet(ctx: Context, userId: string): Promise<void> {
   pendingInputs.set(userId, { type: "import_wallet" });
-  await ctx.editMessageText(
+  await editOrReply(
+    ctx,
     `📥 *IMPORT WALLET*
 
-Send your private key in one of these formats:
-• Base64 \\(88 characters\\)
-• Base58 \\(varies\\)
-• Hex \\(128 characters\\)
-• JSON array \\[1,2,3\\.\\.\\.\\]
+Paste your private key below\\. We accept Base58, Base64, Hex, or JSON array keys\\.
 
 ⚠️ Your key is encrypted and stored securely\\.
 
@@ -1594,11 +1591,7 @@ Your wallet is now ready for sniping\\.`,
     await ctx.reply(
       `❌ *IMPORT FAILED*
 
-Invalid private key format\\. Use:
-• Base64 \\(88 characters\\)
-• Base58 \\(varies\\)
-• Hex \\(128 characters\\)
-• JSON array`,
+That key doesn’t look valid\\. Please paste a Base58, Base64, Hex, or JSON array key and try again\\.`,
       { parse_mode: "MarkdownV2" }
     );
     return false;
