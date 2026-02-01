@@ -1027,7 +1027,7 @@ async function promptImportWallet(ctx: Context, userId: string): Promise<void> {
     ctx,
     `📥 *IMPORT WALLET*
 
-Paste your private key below\\. Most common secret key formats work (a text string or a list of numbers)\\.
+Paste your private key below\\. Most common secret key formats work: a text string or a list of numbers\\.
 
 ⚠️ Your key is encrypted and stored securely\\.
 
