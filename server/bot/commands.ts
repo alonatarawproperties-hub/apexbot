@@ -57,7 +57,12 @@ export function registerCommands(bot: Bot): void {
     }
     
     // Check for private key import
-    if (text.startsWith("[") || text.length === 88 || text.length === 128) {
+    if (
+      text.startsWith("[") ||
+      text.length === 88 ||
+      text.length === 128 ||
+      (text.length >= 44 && text.length <= 88 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(text))
+    ) {
       await handlePrivateKeyImport(ctx, text);
     }
   });
